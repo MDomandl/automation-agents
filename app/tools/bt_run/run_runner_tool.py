@@ -1,0 +1,13 @@
+from typing import Sequence
+
+from app.application.bt_run.ports import ProcessRunner
+from app.common.result import Result
+
+
+class RunRunnerTool:
+    def __init__(self, process_runner: ProcessRunner, command: Sequence[str]) -> None:
+        self._process_runner = process_runner
+        self._command = command
+
+    def execute(self, cwd: str | None = None) -> Result[None]:
+        return self._process_runner.run(self._command, cwd=cwd)
