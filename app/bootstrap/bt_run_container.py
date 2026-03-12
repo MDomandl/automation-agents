@@ -1,24 +1,16 @@
-from app.infrastructure.process.subprocess_runner import SubprocessRunner
-from app.tools.bt_run.run_backtest_tool import RunBacktestTool
-from app.tools.bt_run.run_runner_tool import RunRunnerTool
-from app.tools.bt_run.compare_latest_runs_tool import CompareLatestRunsTool
-from app.tools.bt_run.write_bt_run_report_tool import WriteBtRunReportTool
-from app.agents.bt_run_agent import BtRunAgent
+from pathlib import Path
+
+from app.application.bt_run.use_cases import CompareAllRunsUseCase
+from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
+from app.tools.compare.compare_all_runs_tool import CompareAllRunsTool
 
 
-def build_bt_run_agent() -> BtRunAgent:
+def build_compare_all_runs_tool(decisions_dir: str | Path) -> CompareAllRunsTool:
 
-    process_runner = SubprocessRunner()
+    store = FileDecisionBundleStore(decisions_dir)
 
-    run_backtest = RunBacktestTool(process_runner)
-    run_runner = RunRunnerTool(process_runner)
+    use_case = CompareAllRunsUseCase(store)
 
-    compare_runs = CompareLatestRunsTool()
-    write_report = WriteBtRunReportTool()
+    tool = CompareAllRunsTool(use_case)
 
-    return BtRunAgent(
-        run_backtest,
-        run_runner,
-        compare_runs,
-        write_report,
-    )
+    return tool
