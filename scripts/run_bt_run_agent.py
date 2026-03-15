@@ -51,6 +51,7 @@ def main() -> None:
                 bps_tolerance=5.0,
                 ignore_cash=True,
             ),
+            compare_mode="all", #latest
         )
     )
 

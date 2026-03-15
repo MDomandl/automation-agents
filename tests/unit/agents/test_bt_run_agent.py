@@ -54,11 +54,17 @@ class FakeCompareLatestRunsTool:
         )
 
 
+class FakeCompareAllRunsTool:
+    def execute(self, tool_input):
+        raise AssertionError("compare_all_runs_tool should not be called in latest mode")
+
+
 def test_bt_run_agent_executes_full_flow_successfully() -> None:
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
         run_runner_tool=FakeRunRunnerTool(),
         compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
     )
 
     result = agent.execute(
