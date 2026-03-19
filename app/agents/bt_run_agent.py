@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
+from app.domain.bt_run.run_context import CompareMode
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
 from app.tools.compare.compare_latest_runs_tool import (
     CompareLatestRunsTool,
@@ -12,10 +14,7 @@ from app.tools.process.run_backtest_tool import (
     RunBacktestTool,
     RunBacktestToolInput,
 )
-from app.tools.process.run_runner_tool import (
-    RunRunnerTool,
-    RunRunnerToolInput,
-)
+from app.tools.process.run_runner_tool import RunRunnerTool, RunRunnerToolInput
 
 RunMode = Literal["latest", "all"]
 
@@ -25,7 +24,6 @@ class BtRunAgentInput:
     runner_input: RunRunnerToolInput
     compare_input: CompareLatestRunsToolInput
     compare_mode: RunMode = "latest"
-
 
 @dataclass(frozen=True, slots=True)
 class BtRunAgentResult:
@@ -61,40 +59,53 @@ class BtRunAgent:
         self._compare_latest_runs_tool = compare_latest_runs_tool
         self._compare_all_runs_tool = compare_all_runs_tool
 
-    def execute(self, agent_input: BtRunAgentInput) -> BtRunAgentResult:
+    def execute(self, agent_input: BtRunAgentInput) -> RunResult:
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
         if not backtest_result.success:
-            return BtRunAgentResult(
+            return RunResult(
                 success=False,
-                backtest_success=False,
-                runner_success=False,
-                compare_success=False,
-                backtest_stdout=backtest_result.process_result.stdout,
-                backtest_stderr=backtest_result.process_result.stderr,
-                runner_stdout="",
-                runner_stderr="",
-                compare_message="Backtest failed",
-                compare_matched=None,
+                backtest=StepResult(
+                    success=False,
+                    stdout=backtest_result.process_result.stdout,
+                    stderr=backtest_result.process_result.stderr,
+                    message="Backtest failed",
+                ),
+                runner=StepResult(
+                    success=False,
+                    message="Runner not executed",
+                ),
+                compare=CompareResult(
+                    success=False,
+                    matched=None,
+                    message="Compare not executed because backtest failed",
+                ),
             )
 
         runner_result = self._run_runner_tool.execute(agent_input.runner_input)
 
         if not runner_result.success:
-            return BtRunAgentResult(
+            return RunResult(
                 success=False,
-                backtest_success=True,
-                runner_success=False,
-                compare_success=False,
-                backtest_stdout=backtest_result.process_result.stdout,
-                backtest_stderr=backtest_result.process_result.stderr,
-                runner_stdout=runner_result.process_result.stdout,
-                runner_stderr=runner_result.process_result.stderr,
-                compare_message="Runner failed",
-                compare_matched=None,
+                backtest=StepResult(
+                    success=True,
+                    stdout=backtest_result.process_result.stdout,
+                    stderr=backtest_result.process_result.stderr,
+                ),
+                runner=StepResult(
+                    success=False,
+                    stdout=runner_result.process_result.stdout,
+                    stderr=runner_result.process_result.stderr,
+                    message="Runner failed",
+                ),
+                compare=CompareResult(
+                    success=False,
+                    matched=None,
+                    message="Compare not executed because runner failed",
+                ),
             )
 
-        if agent_input.compare_mode == "latest":
+        if agent_input.compare_mode == CompareMode.LATEST:
             compare_result = self._compare_latest_runs_tool.execute(
                 agent_input.compare_input
             )
@@ -120,15 +131,21 @@ class BtRunAgent:
                 f"{compare_result.mismatched_count} mismatched"
             )
 
-        return BtRunAgentResult(
+        return RunResult(
             success=compare_success,
-            backtest_success=True,
-            runner_success=True,
-            compare_success=compare_success,
-            backtest_stdout=backtest_result.process_result.stdout,
-            backtest_stderr=backtest_result.process_result.stderr,
-            runner_stdout=runner_result.process_result.stdout,
-            runner_stderr=runner_result.process_result.stderr,
-            compare_message=compare_message,
-            compare_matched=compare_matched,
+            backtest=StepResult(
+                success=True,
+                stdout=backtest_result.process_result.stdout,
+                stderr=backtest_result.process_result.stderr,
+            ),
+            runner=StepResult(
+                success=True,
+                stdout=runner_result.process_result.stdout,
+                stderr=runner_result.process_result.stderr,
+            ),
+            compare=CompareResult(
+                success=compare_success,
+                matched=compare_matched,
+                message=compare_message,
+            ),
         )

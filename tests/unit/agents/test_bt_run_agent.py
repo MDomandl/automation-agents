@@ -76,7 +76,7 @@ def test_bt_run_agent_executes_full_flow_successfully() -> None:
     )
 
     assert result.success is True
-    assert result.backtest_success is True
-    assert result.runner_success is True
-    assert result.compare_success is True
-    assert result.compare_matched is True
+    assert result.backtest.success is True
+    assert result.runner.success is True
+    assert result.compare.success is True
+    assert result.compare.matched is True
