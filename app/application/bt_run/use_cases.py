@@ -8,6 +8,7 @@ from app.application.bt_run.dto import (
 )
 from app.application.bt_run.ports import DecisionBundleStorePort
 from app.domain.bt_run.compare import compare_run_artifacts
+from app.domain.bt_run.config_compare import compare_configs, ConfigCompareResult
 
 
 class CompareLatestRunsUseCase:
@@ -74,3 +75,13 @@ class CompareAllRunsUseCase:
             success=True,
             summaries=summaries,
         )
+class CompareConfigUseCase:
+
+    def __init__(self, loader):
+        self._loader = loader
+
+    def execute(self, bt_path, run_path) -> ConfigCompareResult:
+        bt_config = self._loader.load(bt_path)
+        run_config = self._loader.load(run_path)
+
+        return compare_configs(bt_config, run_config)

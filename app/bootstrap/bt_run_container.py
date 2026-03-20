@@ -14,6 +14,9 @@ from app.application.bt_run.use_cases import (
 )
 
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsTool
+from app.infrastructure.storage.config_loader import ConfigLoader
+from app.application.bt_run.use_cases import CompareConfigUseCase
+from app.tools.compare.compare_config_tool import CompareConfigTool
 
 
 def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
@@ -22,6 +25,10 @@ def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
     store = FileDecisionBundleStore(decisions_dir)
     compare_use_case = CompareLatestRunsUseCase(store)
     compare_all_use_case = CompareAllRunsUseCase(store)
+
+    config_loader = ConfigLoader()
+    compare_config_use_case = CompareConfigUseCase(config_loader)
+    compare_config_tool = CompareConfigTool(compare_config_use_case)
 
     run_backtest_tool = RunBacktestTool(process_runner)
     run_runner_tool = RunRunnerTool(process_runner)
@@ -33,4 +40,5 @@ def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
         run_runner_tool=run_runner_tool,
         compare_latest_runs_tool=compare_latest_runs_tool,
         compare_all_runs_tool=compare_all_runs_tool,
+        compare_config_tool=compare_config_tool,
     )

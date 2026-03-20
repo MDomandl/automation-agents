@@ -9,6 +9,7 @@ from app.infrastructure.process.subprocess_runner import ProcessResult, Subproce
 @dataclass(frozen=True, slots=True)
 class RunBacktestToolInput:
     command: tuple[str, ...]
+    config_path: Path
     cwd: str | Path | None = None
     timeout_seconds: int | None = None
 

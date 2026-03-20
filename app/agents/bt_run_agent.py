@@ -6,6 +6,7 @@ from typing import Literal
 from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
 from app.domain.bt_run.run_context import CompareMode
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
+from app.tools.compare.compare_config_tool import CompareConfigTool, CompareConfigToolInput
 from app.tools.compare.compare_latest_runs_tool import (
     CompareLatestRunsTool,
     CompareLatestRunsToolInput,
@@ -53,11 +54,13 @@ class BtRunAgent:
             run_runner_tool: RunRunnerTool,
             compare_latest_runs_tool: CompareLatestRunsTool,
             compare_all_runs_tool: CompareAllRunsTool,
+            compare_config_tool: CompareConfigTool,
     ):
         self._run_backtest_tool = run_backtest_tool
         self._run_runner_tool = run_runner_tool
         self._compare_latest_runs_tool = compare_latest_runs_tool
         self._compare_all_runs_tool = compare_all_runs_tool
+        self._compare_config_tool = compare_config_tool
 
     def execute(self, agent_input: BtRunAgentInput) -> RunResult:
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
@@ -104,6 +107,16 @@ class BtRunAgent:
                     message="Compare not executed because runner failed",
                 ),
             )
+
+        config_result = self._compare_config_tool.execute(
+            CompareConfigToolInput(
+                bt_config_path=agent_input.backtest_input.config_path,
+                runner_config_path=agent_input.runner_input.config_path,
+            )
+        )
+
+        if not config_result.matched:
+            print(f"[WARN] Config drift: {config_result.message}")
 
         if agent_input.compare_mode == CompareMode.LATEST:
             compare_result = self._compare_latest_runs_tool.execute(
