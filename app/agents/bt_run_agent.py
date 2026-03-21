@@ -63,6 +63,26 @@ class BtRunAgent:
         self._compare_config_tool = compare_config_tool
 
     def execute(self, agent_input: BtRunAgentInput) -> RunResult:
+
+        warnings: list[str] = []
+        config_result = None
+
+        if (
+                agent_input.backtest_input.config_path is not None
+                and agent_input.runner_input.config_path is not None
+        ):
+            config_result = self._compare_config_tool.execute(
+                CompareConfigToolInput(
+                    bt_config_path=agent_input.backtest_input.config_path,
+                    runner_config_path=agent_input.runner_input.config_path,
+                )
+            )
+
+            if not config_result.matched:
+                warnings.append(f"[WARN] Config drift detected: {config_result.message}")
+                warnings.extend(config_result.formatted_differences)
+
+
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
         if not backtest_result.success:
@@ -83,6 +103,7 @@ class BtRunAgent:
                     matched=None,
                     message="Compare not executed because backtest failed",
                 ),
+                warnings=tuple(warnings),
             )
 
         runner_result = self._run_runner_tool.execute(agent_input.runner_input)
@@ -106,16 +127,10 @@ class BtRunAgent:
                     matched=None,
                     message="Compare not executed because runner failed",
                 ),
+                warnings=tuple(warnings),
             )
 
-        config_result = self._compare_config_tool.execute(
-            CompareConfigToolInput(
-                bt_config_path=agent_input.backtest_input.config_path,
-                runner_config_path=agent_input.runner_input.config_path,
-            )
-        )
-
-        if not config_result.matched:
+        if config_result is not None and not config_result.matched:
             print(f"[WARN] Config drift: {config_result.message}")
 
         if agent_input.compare_mode == CompareMode.LATEST:
@@ -161,4 +176,5 @@ class BtRunAgent:
                 matched=compare_matched,
                 message=compare_message,
             ),
+            warnings=tuple(warnings),
         )

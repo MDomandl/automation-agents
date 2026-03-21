@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput
 from app.application.bt_run.dto import CompareLatestRunsResponse
 from app.domain.bt_run.models import ComparisonSummary
 from app.infrastructure.process.subprocess_runner import ProcessResult
 from app.tools.compare.compare_latest_runs_tool import CompareLatestRunsToolInput
+from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput
+from app.tools.compare.compare_config_tool import CompareConfigToolInput, CompareConfigToolResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
@@ -41,6 +45,17 @@ class FakeRunRunnerTool:
         )()
 
 
+class FakeCompareConfigTool:
+    def execute(self, tool_input):
+        return CompareConfigToolResult(
+            differences=tuple(),
+            success=True,
+            matched=True,
+            message="Configs match",
+            formatted_differences=tuple(),
+        )
+
+
 class FakeCompareLatestRunsTool:
     def execute(self, tool_input):
         return CompareLatestRunsResponse(
@@ -58,19 +73,19 @@ class FakeCompareAllRunsTool:
     def execute(self, tool_input):
         raise AssertionError("compare_all_runs_tool should not be called in latest mode")
 
-
 def test_bt_run_agent_executes_full_flow_successfully() -> None:
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
         run_runner_tool=FakeRunRunnerTool(),
         compare_latest_runs_tool=FakeCompareLatestRunsTool(),
         compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=FakeCompareConfigTool(),
     )
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py")),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py")),
+            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=Path("bt.yaml")),
+            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=Path("runner.yaml")),
             compare_input=CompareLatestRunsToolInput(),
         )
     )

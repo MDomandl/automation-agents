@@ -23,3 +23,4 @@ class RunResult:
     backtest: StepResult
     runner: StepResult
     compare: CompareResult
+    warnings: tuple[str, ...] = ()

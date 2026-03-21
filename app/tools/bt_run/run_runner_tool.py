@@ -1,8 +1,16 @@
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 from app.application.bt_run.ports import ProcessRunner
 from app.common.result import Result
 
+@dataclass(frozen=True, slots=True)
+class RunRunnerToolInput:
+    command: tuple[str, ...]
+    config_path: Path | None = None
+    cwd: str | Path | None = None
+    timeout_seconds: int | None = None
 
 class RunRunnerTool:
     def __init__(self, process_runner: ProcessRunner, command: Sequence[str]) -> None:

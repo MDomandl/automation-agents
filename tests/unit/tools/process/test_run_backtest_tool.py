@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.infrastructure.process.subprocess_runner import ProcessResult
 from app.tools.process.run_backtest_tool import (
     RunBacktestTool,
@@ -36,6 +38,7 @@ def test_run_backtest_tool_delegates_to_subprocess_runner() -> None:
             command=("python", "script.py"),
             cwd="C:/tmp",
             timeout_seconds=120,
+            config_path=Path("bt.yaml"),
         )
     )
 

@@ -64,6 +64,7 @@ def build_run_manifest(context: RunContext, result: RunResult) -> dict:
         "backtest_config_path": str(context.backtest_config_path),
         "runner_config_path": str(context.runner_config_path),
         "success": result.success,
+        "warnings": list(result.warnings),
         "backtest": {
             "success": result.backtest.success,
             "message": result.backtest.message,
@@ -119,6 +120,7 @@ def main() -> None:
                     str(context.backtest_config_path),
                 ),
                 cwd=context.ai_agents_dir,
+                config_path=context.backtest_config_path,
             ),
             runner_input=RunRunnerToolInput(
                 command=(
@@ -129,6 +131,7 @@ def main() -> None:
                     str(context.runner_config_path),
                 ),
                 cwd=context.ai_agents_dir,
+                config_path=context.backtest_config_path,
             ),
             compare_input=CompareLatestRunsToolInput(
                 bps_tolerance=context.bps_tolerance,
@@ -142,16 +145,19 @@ def main() -> None:
     (context.output_dir / "backtest_stderr.txt").write_text(result.backtest.stderr, encoding="utf-8")
     (context.output_dir / "runner_stdout.txt").write_text(result.runner.stdout, encoding="utf-8")
     (context.output_dir / "runner_stderr.txt").write_text(result.runner.stderr, encoding="utf-8")
+    warnings_text = "\n".join(result.warnings) if result.warnings else "None"
 
     summary_text = (
         f"run_id: {context.run_id}\n"
         f"profile: {context.profile.value}\n"
+        f"compare_mode: {context.compare_mode.value}\n"
         f"success: {result.success}\n"
         f"backtest_success: {result.backtest.success}\n"
         f"runner_success: {result.runner.success}\n"
         f"compare_success: {result.compare.success}\n"
         f"compare_matched: {result.compare.matched}\n"
         f"compare_message: {result.compare.message}\n"
+        f"warnings: {warnings_text}\n"
     )
     (context.output_dir / "summary.txt").write_text(summary_text, encoding="utf-8")
 
