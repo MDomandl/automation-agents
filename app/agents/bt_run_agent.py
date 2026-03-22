@@ -82,6 +82,30 @@ class BtRunAgent:
                 warnings=tuple(warnings),
             )
 
+        def latest_compare_input() -> CompareLatestRunsToolInput:
+            return CompareLatestRunsToolInput(
+                bps_tolerance=agent_input.compare_input.bps_tolerance,
+                ignore_cash=agent_input.compare_input.ignore_cash,
+            )
+
+        def all_compare_input() -> CompareAllRunsToolInput:
+            return CompareAllRunsToolInput(
+                bps_tolerance=agent_input.compare_input.bps_tolerance,
+                ignore_cash=agent_input.compare_input.ignore_cash,
+            )
+
+        def compare_result(
+            *,
+            success: bool,
+            matched: bool | None,
+            message: str | None,
+        ) -> CompareResult:
+            return CompareResult(
+                success=success,
+                matched=matched,
+                message=message,
+            )
+
         if (
                 agent_input.backtest_input.config_path is not None
                 and agent_input.runner_input.config_path is not None
@@ -130,39 +154,29 @@ class BtRunAgent:
             print(f"[WARN] Config drift: {config_result.message}")
 
         if agent_input.compare_mode == CompareMode.LATEST:
-            compare_result = self._compare_latest_runs_tool.execute(
-                CompareLatestRunsToolInput(
-                    bps_tolerance=agent_input.compare_input.bps_tolerance,
-                    ignore_cash=agent_input.compare_input.ignore_cash,
-                )
-            )
+            compare_response = self._compare_latest_runs_tool.execute(latest_compare_input())
 
-            compare_success = compare_result.success
+            compare_success = compare_response.success
             compare_matched = (
-                compare_result.summary.matched if compare_result.summary else None
+                compare_response.summary.matched if compare_response.summary else None
             )
-            compare_message = compare_result.message
+            compare_message = compare_response.message
 
         else:
-            compare_result = self._compare_all_runs_tool.execute(
-                CompareAllRunsToolInput(
-                    bps_tolerance=agent_input.compare_input.bps_tolerance,
-                    ignore_cash=agent_input.compare_input.ignore_cash,
-                )
-            )
+            compare_response = self._compare_all_runs_tool.execute(all_compare_input())
 
-            compare_success = compare_result.success
-            compare_matched = compare_result.mismatched_count == 0
+            compare_success = compare_response.success
+            compare_matched = compare_response.mismatched_count == 0
             compare_message = (
-                f"{compare_result.matched_count} matched, "
-                f"{compare_result.mismatched_count} mismatched"
+                f"{compare_response.matched_count} matched, "
+                f"{compare_response.mismatched_count} mismatched"
             )
 
         return RunResult(
             success=compare_success,
             backtest=step_result(backtest_result.process_result, success=True),
             runner=step_result(runner_result.process_result, success=True),
-            compare=CompareResult(
+            compare=compare_result(
                 success=compare_success,
                 matched=compare_matched,
                 message=compare_message,
