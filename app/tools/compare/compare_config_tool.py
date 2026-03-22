@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.application.bt_run.use_cases import CompareConfigUseCase
-from app.domain.bt_run.config_compare import ConfigDifference
+from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,17 +46,24 @@ class CompareConfigTool:
             for diff in result.differences
         )
 
+        message = (
+            f"{len(result.differences)} differences found "
+            f"({result.critical_count} critical, "
+            f"{result.warning_count} warning, "
+            f"{result.info_count} info)"
+        )
+
         return CompareConfigToolResult(
             success=True,
             matched=False,
             differences=result.differences,
-            message=f"{len(result.differences)} differences found",
+            message=message,
             formatted_differences=formatted,
         )
 
     @staticmethod
     def _format_difference(diff: ConfigDifference) -> str:
         return (
-            f"- {diff.key}: "
+            f"- [{diff.severity.value.upper()}] {diff.key}: "
             f"BT={diff.bt_value!r} | RUN={diff.run_value!r}"
         )

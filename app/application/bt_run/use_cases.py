@@ -8,8 +8,27 @@ from app.application.bt_run.dto import (
 )
 from app.application.bt_run.ports import DecisionBundleStorePort
 from app.domain.bt_run.compare import compare_run_artifacts
-from app.domain.bt_run.config_compare import compare_configs, ConfigCompareResult
+from app.domain.bt_run.config_compare import compare_configs, ConfigCompareResult, ConfigDiffSeverity
 
+DEFAULT_CONFIG_KEY_SEVERITIES: dict[str, ConfigDiffSeverity] = {
+    "as_of": ConfigDiffSeverity.CRITICAL,
+    "period": ConfigDiffSeverity.CRITICAL,
+    "top_k": ConfigDiffSeverity.CRITICAL,
+    "buffer_k": ConfigDiffSeverity.CRITICAL,
+    "rebalance": ConfigDiffSeverity.CRITICAL,
+    "max_per_sector": ConfigDiffSeverity.CRITICAL,
+    "use_sector_limits": ConfigDiffSeverity.CRITICAL,
+    "adjusted": ConfigDiffSeverity.CRITICAL,
+    "friction_eps": ConfigDiffSeverity.CRITICAL,
+    "friction_eps_pct": ConfigDiffSeverity.CRITICAL,
+    "max_turnover_cap": ConfigDiffSeverity.CRITICAL,
+    "weight_round_step": ConfigDiffSeverity.WARNING,
+    "max_active_names": ConfigDiffSeverity.WARNING,
+    "include_cash": ConfigDiffSeverity.WARNING,
+    "cash_yield_annual": ConfigDiffSeverity.WARNING,
+    "dump_decision_bundles": ConfigDiffSeverity.INFO,
+    "max_lookback_days": ConfigDiffSeverity.INFO,
+}
 
 class CompareLatestRunsUseCase:
     """
@@ -77,11 +96,18 @@ class CompareAllRunsUseCase:
         )
 class CompareConfigUseCase:
 
-    def __init__(self, loader):
+    def __init__(self, loader, relevant_keys=None, key_severities=None):
         self._loader = loader
+        self._relevant_keys = relevant_keys or tuple(DEFAULT_CONFIG_KEY_SEVERITIES.keys())
+        self._key_severities = key_severities or DEFAULT_CONFIG_KEY_SEVERITIES
 
     def execute(self, bt_path, run_path) -> ConfigCompareResult:
         bt_config = self._loader.load(bt_path)
         run_config = self._loader.load(run_path)
 
-        return compare_configs(bt_config, run_config)
+        return compare_configs(
+            bt_config,
+            run_config,
+            relevant_keys=self._relevant_keys,
+            key_severities=self._key_severities,
+        )

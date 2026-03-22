@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from app.domain.bt_run.config_compare import ConfigDiffSeverity
 from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
 from app.domain.bt_run.run_context import CompareMode
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
@@ -78,7 +79,10 @@ class BtRunAgent:
                 )
             )
 
-            if not config_result.matched:
+            if not config_result.matched and any(
+                    d.severity == ConfigDiffSeverity.CRITICAL
+                    for d in config_result.differences
+            ):
                 warnings.append(f"[WARN] Config drift detected: {config_result.message}")
                 warnings.extend(config_result.formatted_differences)
 
