@@ -1,48 +1,33 @@
 from pathlib import Path
 
-from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput
+from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput, BtRunCompareInput
 from app.application.bt_run.dto import CompareLatestRunsResponse
 from app.domain.bt_run.models import ComparisonSummary
 from app.infrastructure.process.subprocess_runner import ProcessResult
-from app.tools.compare.compare_latest_runs_tool import CompareLatestRunsToolInput
-from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput
-from app.tools.compare.compare_config_tool import CompareConfigToolInput, CompareConfigToolResult
+from app.tools.compare.compare_config_tool import CompareConfigToolResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
 
+class FakeProcessToolResult:
+    def __init__(self, command: tuple[str, str], stdout: str):
+        self.success = True
+        self.process_result = ProcessResult(
+            command=command,
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+        )
+
+
 class FakeRunBacktestTool:
     def execute(self, tool_input):
-        return type(
-            "BacktestResult",
-            (),
-            {
-                "success": True,
-                "process_result": ProcessResult(
-                    command=("python", "bt.py"),
-                    returncode=0,
-                    stdout="bt ok",
-                    stderr="",
-                ),
-            },
-        )()
+        return FakeProcessToolResult(("python", "bt.py"), "bt ok")
 
 
 class FakeRunRunnerTool:
     def execute(self, tool_input):
-        return type(
-            "RunnerResult",
-            (),
-            {
-                "success": True,
-                "process_result": ProcessResult(
-                    command=("python", "runner.py"),
-                    returncode=0,
-                    stdout="run ok",
-                    stderr="",
-                ),
-            },
-        )()
+        return FakeProcessToolResult(("python", "runner.py"), "run ok")
 
 
 class FakeCompareConfigTool:
@@ -53,6 +38,7 @@ class FakeCompareConfigTool:
             matched=True,
             message="Configs match",
             formatted_differences=tuple(),
+            has_critical_differences=False,
         )
 
 
@@ -86,7 +72,7 @@ def test_bt_run_agent_executes_full_flow_successfully() -> None:
         BtRunAgentInput(
             backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=Path("bt.yaml")),
             runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=Path("runner.yaml")),
-            compare_input=CompareLatestRunsToolInput(),
+            compare_input=BtRunCompareInput(),
         )
     )
 

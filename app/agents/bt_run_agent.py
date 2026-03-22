@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
-from app.domain.bt_run.config_compare import ConfigDiffSeverity
 from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
 from app.domain.bt_run.run_context import CompareMode
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
@@ -18,27 +16,18 @@ from app.tools.process.run_backtest_tool import (
 )
 from app.tools.process.run_runner_tool import RunRunnerTool, RunRunnerToolInput
 
-RunMode = Literal["latest", "all"]
+@dataclass(frozen=True, slots=True)
+class BtRunCompareInput:
+    bps_tolerance: float = 5.0
+    ignore_cash: bool = True
+
 
 @dataclass(frozen=True, slots=True)
 class BtRunAgentInput:
     backtest_input: RunBacktestToolInput
     runner_input: RunRunnerToolInput
-    compare_input: CompareLatestRunsToolInput
-    compare_mode: RunMode = "latest"
-
-@dataclass(frozen=True, slots=True)
-class BtRunAgentResult:
-    success: bool
-    backtest_success: bool
-    runner_success: bool
-    compare_success: bool
-    backtest_stdout: str
-    backtest_stderr: str
-    runner_stdout: str
-    runner_stderr: str
-    compare_message: str | None = None
-    compare_matched: bool | None = None
+    compare_input: BtRunCompareInput
+    compare_mode: CompareMode = CompareMode.LATEST
 
 
 class BtRunAgent:
@@ -51,11 +40,11 @@ class BtRunAgent:
 
     def __init__(
         self,
-            run_backtest_tool: RunBacktestTool,
-            run_runner_tool: RunRunnerTool,
-            compare_latest_runs_tool: CompareLatestRunsTool,
-            compare_all_runs_tool: CompareAllRunsTool,
-            compare_config_tool: CompareConfigTool,
+        run_backtest_tool: RunBacktestTool,
+        run_runner_tool: RunRunnerTool,
+        compare_latest_runs_tool: CompareLatestRunsTool,
+        compare_all_runs_tool: CompareAllRunsTool,
+        compare_config_tool: CompareConfigTool,
     ):
         self._run_backtest_tool = run_backtest_tool
         self._run_runner_tool = run_runner_tool
@@ -64,7 +53,6 @@ class BtRunAgent:
         self._compare_config_tool = compare_config_tool
 
     def execute(self, agent_input: BtRunAgentInput) -> RunResult:
-
         warnings: list[str] = []
         config_result = None
 
@@ -79,13 +67,9 @@ class BtRunAgent:
                 )
             )
 
-            if not config_result.matched and any(
-                    d.severity == ConfigDiffSeverity.CRITICAL
-                    for d in config_result.differences
-            ):
+            if not config_result.matched and config_result.has_critical_differences:
                 warnings.append(f"[WARN] Config drift detected: {config_result.message}")
                 warnings.extend(config_result.formatted_differences)
-
 
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
@@ -139,7 +123,10 @@ class BtRunAgent:
 
         if agent_input.compare_mode == CompareMode.LATEST:
             compare_result = self._compare_latest_runs_tool.execute(
-                agent_input.compare_input
+                CompareLatestRunsToolInput(
+                    bps_tolerance=agent_input.compare_input.bps_tolerance,
+                    ignore_cash=agent_input.compare_input.ignore_cash,
+                )
             )
 
             compare_success = compare_result.success

@@ -15,9 +15,10 @@ class CompareConfigToolInput:
 class CompareConfigToolResult:
     success: bool
     matched: bool
-    differences: tuple
+    differences: tuple[ConfigDifference, ...]
     message: str
     formatted_differences: tuple[str, ...] = ()
+    has_critical_differences: bool = False
 
 
 class CompareConfigTool:
@@ -39,10 +40,15 @@ class CompareConfigTool:
                 differences=(),
                 message="Configs match",
                 formatted_differences=(),
+                has_critical_differences=False,
             )
 
         formatted = tuple(
             self._format_difference(diff)
+            for diff in result.differences
+        )
+        has_critical_differences = any(
+            diff.severity == ConfigDiffSeverity.CRITICAL
             for diff in result.differences
         )
 
@@ -59,6 +65,7 @@ class CompareConfigTool:
             differences=result.differences,
             message=message,
             formatted_differences=formatted,
+            has_critical_differences=has_critical_differences,
         )
 
     @staticmethod
