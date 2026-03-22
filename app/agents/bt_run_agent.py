@@ -56,6 +56,32 @@ class BtRunAgent:
         warnings: list[str] = []
         config_result = None
 
+        def step_result(process_result, *, success: bool, message: str | None = None) -> StepResult:
+            return StepResult(
+                success=success,
+                stdout=process_result.stdout,
+                stderr=process_result.stderr,
+                message=message,
+            )
+
+        def failed_run_result(
+            *,
+            backtest: StepResult,
+            runner: StepResult,
+            compare_message: str,
+        ) -> RunResult:
+            return RunResult(
+                success=False,
+                backtest=backtest,
+                runner=runner,
+                compare=CompareResult(
+                    success=False,
+                    matched=None,
+                    message=compare_message,
+                ),
+                warnings=tuple(warnings),
+            )
+
         if (
                 agent_input.backtest_input.config_path is not None
                 and agent_input.runner_input.config_path is not None
@@ -74,48 +100,30 @@ class BtRunAgent:
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
         if not backtest_result.success:
-            return RunResult(
-                success=False,
-                backtest=StepResult(
+            return failed_run_result(
+                backtest=step_result(
+                    backtest_result.process_result,
                     success=False,
-                    stdout=backtest_result.process_result.stdout,
-                    stderr=backtest_result.process_result.stderr,
                     message="Backtest failed",
                 ),
                 runner=StepResult(
                     success=False,
                     message="Runner not executed",
                 ),
-                compare=CompareResult(
-                    success=False,
-                    matched=None,
-                    message="Compare not executed because backtest failed",
-                ),
-                warnings=tuple(warnings),
+                compare_message="Compare not executed because backtest failed",
             )
 
         runner_result = self._run_runner_tool.execute(agent_input.runner_input)
 
         if not runner_result.success:
-            return RunResult(
-                success=False,
-                backtest=StepResult(
-                    success=True,
-                    stdout=backtest_result.process_result.stdout,
-                    stderr=backtest_result.process_result.stderr,
-                ),
-                runner=StepResult(
+            return failed_run_result(
+                backtest=step_result(backtest_result.process_result, success=True),
+                runner=step_result(
+                    runner_result.process_result,
                     success=False,
-                    stdout=runner_result.process_result.stdout,
-                    stderr=runner_result.process_result.stderr,
                     message="Runner failed",
                 ),
-                compare=CompareResult(
-                    success=False,
-                    matched=None,
-                    message="Compare not executed because runner failed",
-                ),
-                warnings=tuple(warnings),
+                compare_message="Compare not executed because runner failed",
             )
 
         if config_result is not None and not config_result.matched:
@@ -152,16 +160,8 @@ class BtRunAgent:
 
         return RunResult(
             success=compare_success,
-            backtest=StepResult(
-                success=True,
-                stdout=backtest_result.process_result.stdout,
-                stderr=backtest_result.process_result.stderr,
-            ),
-            runner=StepResult(
-                success=True,
-                stdout=runner_result.process_result.stdout,
-                stderr=runner_result.process_result.stderr,
-            ),
+            backtest=step_result(backtest_result.process_result, success=True),
+            runner=step_result(runner_result.process_result, success=True),
             compare=CompareResult(
                 success=compare_success,
                 matched=compare_matched,
