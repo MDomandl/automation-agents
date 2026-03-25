@@ -107,3 +107,23 @@ def test_load_artifact_reads_positions_list(tmp_path) -> None:
     assert artifact.source == "RUN"
     assert artifact.as_of == "2025-10-10"
     assert artifact.weights == {"AAPL": 0.7, "CASH": 0.3}
+
+
+def test_load_artifact_accepts_empty_new_weights_dict(tmp_path) -> None:
+    path = tmp_path / "RUN_empty.json"
+    path.write_text(
+        json.dumps(
+            {
+                "as_of": "2025-10-10",
+                "new_weights": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    store = FileDecisionBundleStore(tmp_path)
+    artifact = store.load_artifact(str(path))
+
+    assert artifact.source == "RUN"
+    assert artifact.as_of == "2025-10-10"
+    assert artifact.weights == {}

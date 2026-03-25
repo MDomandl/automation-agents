@@ -127,7 +127,7 @@ class FileDecisionBundleStore(DecisionBundleStorePort):
 
             normalized = FileDecisionBundleStore._normalize_weights_value(value)
 
-            if normalized:
+            if normalized is not None:
                 return normalized
 
         raise KeyError("No supported weights field found: new_weights, weights, positions")

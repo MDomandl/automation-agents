@@ -6,11 +6,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from app.agents.bt_run_agent import BtRunAgentInput
+from app.agents.bt_run_agent import BtRunAgentInput, BtRunCompareInput
 from app.bootstrap.bt_run_container import build_bt_run_agent
 from app.domain.bt_run.run_context import RunContext, CompareMode, RunProfile
 from app.domain.bt_run.run_result import RunResult
-from app.tools.compare.compare_latest_runs_tool import CompareLatestRunsToolInput
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
@@ -27,7 +26,7 @@ def build_run_context(profile: RunProfile) -> RunContext:
 
     output_dir = ai_agents_dir / "automation_runs" / run_label
 
-    backtest_config_path = aktien_oop_dir / "configs" / "backtest_config.toml"
+    backtest_config_path = aktien_oop_dir / "backtest_config.toml"
     runner_config_path = aktien_oop_dir / "configs" / "runner_config.toml"
 
     compare_mode = (
@@ -131,9 +130,9 @@ def main() -> None:
                     str(context.runner_config_path),
                 ),
                 cwd=context.ai_agents_dir,
-                config_path=context.backtest_config_path,
+                config_path=context.runner_config_path,
             ),
-            compare_input=CompareLatestRunsToolInput(
+            compare_input=BtRunCompareInput(
                 bps_tolerance=context.bps_tolerance,
                 ignore_cash=context.ignore_cash,
             ),
