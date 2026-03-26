@@ -28,6 +28,9 @@ def test_run_backtest_tool_delegates_to_subprocess_runner() -> None:
             returncode=0,
             stdout="ok",
             stderr="",
+            cwd="C:/tmp",
+            duration_seconds=0.5,
+            timed_out=False,
         )
     )
 

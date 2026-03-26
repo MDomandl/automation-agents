@@ -86,9 +86,6 @@ class BtRunAgent:
                 warnings=warnings,
             )
 
-        if config_result is not None and not config_result.matched:
-            self._emit_config_warning(config_result.message)
-
         compare_result = self._execute_compare(agent_input)
 
         return RunResult(
@@ -153,6 +150,11 @@ class BtRunAgent:
     def _step_result(process_result, *, success: bool, message: str | None = None) -> StepResult:
         return StepResult(
             success=success,
+            command=process_result.command,
+            cwd=process_result.cwd,
+            returncode=process_result.returncode,
+            duration_seconds=process_result.duration_seconds,
+            timed_out=process_result.timed_out,
             stdout=process_result.stdout,
             stderr=process_result.stderr,
             message=message,
@@ -177,7 +179,3 @@ class BtRunAgent:
             ),
             warnings=warnings,
         )
-
-    @staticmethod
-    def _emit_config_warning(message: str) -> None:
-        print(f"[WARN] Config drift: {message}")

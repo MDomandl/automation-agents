@@ -5,6 +5,11 @@ from typing import Optional
 @dataclass(frozen=True, slots=True)
 class StepResult:
     success: bool
+    command: tuple[str, ...] = ()
+    cwd: str | None = None
+    returncode: int | None = None
+    duration_seconds: float | None = None
+    timed_out: bool = False
     stdout: str = ""
     stderr: str = ""
     message: Optional[str] = None

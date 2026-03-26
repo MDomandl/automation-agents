@@ -18,6 +18,9 @@ class FakeProcessToolResult:
             returncode=0,
             stdout=stdout,
             stderr="",
+            cwd="C:/work",
+            duration_seconds=1.25,
+            timed_out=False,
         )
 
 
@@ -106,6 +109,11 @@ def test_bt_run_agent_executes_full_flow_successfully() -> None:
     assert result.runner.success is True
     assert result.compare.success is True
     assert result.compare.matched is True
+    assert result.backtest.command == ("python", "bt.py")
+    assert result.backtest.cwd == "C:/work"
+    assert result.backtest.returncode == 0
+    assert result.backtest.duration_seconds == 1.25
+    assert result.backtest.timed_out is False
 
 
 def test_bt_run_agent_uses_compare_latest_mode() -> None:
@@ -137,7 +145,7 @@ def test_bt_run_agent_uses_compare_latest_mode() -> None:
 
 
 
-def test_bt_run_agent_adds_config_drift_warnings_to_run_result() -> None:
+def test_bt_run_agent_adds_config_drift_warnings_to_run_result(capsys) -> None:
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
         run_runner_tool=FakeRunRunnerTool(),
@@ -165,3 +173,6 @@ def test_bt_run_agent_adds_config_drift_warnings_to_run_result() -> None:
     assert result.warnings[0] == "[WARN] Config drift detected: 2 differences found"
     assert "period" in result.warnings[1]
     assert "include_cash" in result.warnings[2]
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
