@@ -3,14 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgentInput, BtRunCompareInput
 from app.bootstrap.bt_run_container import build_bt_run_agent
 from app.domain.bt_run.run_context import RunContext, CompareMode, RunProfile
-from app.domain.bt_run.run_result import RunResult
+from app.domain.bt_run.run_result import RunResult, StepResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
@@ -52,6 +51,21 @@ def build_run_context(profile: RunProfile) -> RunContext:
         ignore_cash=True,
     )
 
+
+def _step_result_to_dict(step_result: StepResult) -> dict:
+    return {
+        "success": step_result.success,
+        "command": list(step_result.command),
+        "cwd": step_result.cwd,
+        "returncode": step_result.returncode,
+        "duration_seconds": step_result.duration_seconds,
+        "timed_out": step_result.timed_out,
+        "stdout": step_result.stdout,
+        "stderr": step_result.stderr,
+        "message": step_result.message,
+    }
+
+
 def build_run_manifest(context: RunContext, result: RunResult) -> dict:
     return {
         "run_id": context.run_id,
@@ -65,8 +79,8 @@ def build_run_manifest(context: RunContext, result: RunResult) -> dict:
         "runner_config_path": str(context.runner_config_path),
         "success": result.success,
         "warnings": list(result.warnings),
-        "backtest": asdict(result.backtest),
-        "runner": asdict(result.runner),
+        "backtest": _step_result_to_dict(result.backtest),
+        "runner": _step_result_to_dict(result.runner),
         "compare": {
             "success": result.compare.success,
             "matched": result.compare.matched,

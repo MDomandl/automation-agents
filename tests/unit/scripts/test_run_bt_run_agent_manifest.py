@@ -51,16 +51,22 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
 
     manifest = build_run_manifest(context, result)
 
-    assert manifest["backtest"]["command"] == ("python", "-m", "aktien_oop.backtest")
+    assert manifest["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert manifest["backtest"]["returncode"] == 0
     assert manifest["backtest"]["duration_seconds"] == 12.5
     assert manifest["backtest"]["stdout"] == "backtest ok"
     assert manifest["backtest"]["stderr"] == ""
-    assert manifest["runner"]["command"] == ("python", "-m", "aktien_oop.main")
+    assert manifest["backtest"]["cwd"] == "D:/ai_agents"
+    assert manifest["backtest"]["timed_out"] is False
+    assert manifest["backtest"]["message"] == "Backtest completed"
+    assert manifest["runner"]["command"] == ["python", "-m", "aktien_oop.main"]
     assert manifest["runner"]["returncode"] == 2
     assert manifest["runner"]["duration_seconds"] == 3.2
     assert manifest["runner"]["stdout"] == "runner out"
     assert manifest["runner"]["stderr"] == "runner err"
+    assert manifest["runner"]["cwd"] == "D:/ai_agents"
+    assert manifest["runner"]["timed_out"] is False
+    assert manifest["runner"]["message"] == "Runner failed"
 
     encoded = json.dumps(manifest)
     decoded = json.loads(encoded)
