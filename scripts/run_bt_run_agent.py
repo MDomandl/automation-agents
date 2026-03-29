@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
@@ -64,14 +65,8 @@ def build_run_manifest(context: RunContext, result: RunResult) -> dict:
         "runner_config_path": str(context.runner_config_path),
         "success": result.success,
         "warnings": list(result.warnings),
-        "backtest": {
-            "success": result.backtest.success,
-            "message": result.backtest.message,
-        },
-        "runner": {
-            "success": result.runner.success,
-            "message": result.runner.message,
-        },
+        "backtest": asdict(result.backtest),
+        "runner": asdict(result.runner),
         "compare": {
             "success": result.compare.success,
             "matched": result.compare.matched,
