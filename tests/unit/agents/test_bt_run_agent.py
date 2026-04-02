@@ -1,17 +1,21 @@
 from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput, BtRunCompareInput
+from app.application.bt_run.use_cases import CompareConfigUseCase
 from app.application.bt_run.dto import CompareLatestRunsResponse
+from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
 from app.domain.bt_run.models import ComparisonSummary
 from app.domain.bt_run.run_context import CompareMode
 from app.infrastructure.process.subprocess_runner import ProcessResult
+from app.infrastructure.storage.config_loader import ConfigLoader
 from app.tools.compare.compare_config_tool import CompareConfigToolResult
+from app.tools.compare.compare_config_tool import CompareConfigTool
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
 
 class FakeProcessToolResult:
-    def __init__(self, command: tuple[str, str], stdout: str):
+    def __init__(self, command: tuple[str, ...], stdout: str):
         self.success = True
         self.process_result = ProcessResult(
             command=command,
@@ -30,7 +34,11 @@ class FakeRunBacktestTool:
 
 
 class FakeRunRunnerTool:
+    def __init__(self):
+        self.last_input = None
+
     def execute(self, tool_input):
+        self.last_input = tool_input
         return FakeProcessToolResult(("python", "runner.py"), "run ok")
 
 
@@ -77,7 +85,20 @@ class FakeCompareConfigToolWithDrift:
         return CompareConfigToolResult(
             success=True,
             matched=False,
-            differences=(),
+            differences=(
+                ConfigDifference(
+                    key="period",
+                    bt_value="800d",
+                    run_value="400d",
+                    severity=ConfigDiffSeverity.CRITICAL,
+                ),
+                ConfigDifference(
+                    key="include_cash",
+                    bt_value=True,
+                    run_value=False,
+                    severity=ConfigDiffSeverity.WARNING,
+                ),
+            ),
             message="2 differences found",
             formatted_differences=(
                 "- [CRITICAL] period: BT='800d' | RUN='400d'",
@@ -87,10 +108,26 @@ class FakeCompareConfigToolWithDrift:
         )
 
 
+def write_config(path: Path, *, as_of: str | None = None, period: str | None = None) -> None:
+    lines: list[str] = []
+
+    if as_of is not None:
+        lines.append(f'as_of = "{as_of}"')
+    if period is not None:
+        lines.append(f'period = "{period}"')
+
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def build_real_compare_config_tool() -> CompareConfigTool:
+    return CompareConfigTool(CompareConfigUseCase(ConfigLoader()))
+
+
 def test_bt_run_agent_executes_full_flow_successfully() -> None:
+    fake_run_runner_tool = FakeRunRunnerTool()
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
-        run_runner_tool=FakeRunRunnerTool(),
+        run_runner_tool=fake_run_runner_tool,
         compare_latest_runs_tool=FakeCompareLatestRunsTool(),
         compare_all_runs_tool=FakeCompareAllRunsTool(),
         compare_config_tool=FakeCompareConfigTool(),
@@ -114,15 +151,17 @@ def test_bt_run_agent_executes_full_flow_successfully() -> None:
     assert result.backtest.returncode == 0
     assert result.backtest.duration_seconds == 1.25
     assert result.backtest.timed_out is False
+    assert fake_run_runner_tool.last_input.as_of_override is None
 
 
 def test_bt_run_agent_uses_compare_latest_mode() -> None:
     latest_tool = FakeCompareLatestRunsTool()
     all_tool = FakeCompareAllRunsTool()
+    fake_run_runner_tool = FakeRunRunnerTool()
 
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
-        run_runner_tool=FakeRunRunnerTool(),
+        run_runner_tool=fake_run_runner_tool,
         compare_latest_runs_tool=latest_tool,
         compare_all_runs_tool=all_tool,
         compare_config_tool=FakeCompareConfigTool(),
@@ -142,13 +181,15 @@ def test_bt_run_agent_uses_compare_latest_mode() -> None:
     assert result.compare.matched is True
     assert latest_tool.called is True
     assert all_tool.called is False
+    assert fake_run_runner_tool.last_input.as_of_override is None
 
 
 
 def test_bt_run_agent_adds_config_drift_warnings_to_run_result(capsys) -> None:
+    fake_run_runner_tool = FakeRunRunnerTool()
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
-        run_runner_tool=FakeRunRunnerTool(),
+        run_runner_tool=fake_run_runner_tool,
         compare_latest_runs_tool=FakeCompareLatestRunsTool(),
         compare_all_runs_tool=FakeCompareAllRunsTool(),
         compare_config_tool=FakeCompareConfigToolWithDrift(),
@@ -170,9 +211,112 @@ def test_bt_run_agent_adds_config_drift_warnings_to_run_result(capsys) -> None:
     )
 
     assert len(result.warnings) == 3
-    assert result.warnings[0] == "[WARN] Config drift detected: 2 differences found"
+    assert (
+        result.warnings[0]
+        == "[WARN] Config drift detected: 2 differences found (1 critical, 1 warning, 0 info)"
+    )
     assert "period" in result.warnings[1]
     assert "include_cash" in result.warnings[2]
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+    assert fake_run_runner_tool.last_input.as_of_override is None
+
+
+def test_bt_run_agent_auto_aligns_runner_as_of_when_runner_config_is_missing(tmp_path: Path) -> None:
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-03-31")
+    write_config(runner_config_path)
+
+    fake_run_runner_tool = FakeRunRunnerTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_run_runner_tool,
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"),
+                config_path=bt_config_path,
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"),
+                config_path=runner_config_path,
+            ),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert fake_run_runner_tool.last_input.as_of_override == "2025-03-31"
+    assert result.warnings == ("[INFO] Runner as_of auto-aligned to backtest as_of: 2025-03-31",)
+
+
+def test_bt_run_agent_prefers_explicit_runner_as_of(tmp_path: Path) -> None:
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-03-31")
+    write_config(runner_config_path, as_of="2025-04-01")
+
+    fake_run_runner_tool = FakeRunRunnerTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_run_runner_tool,
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"),
+                config_path=bt_config_path,
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"),
+                config_path=runner_config_path,
+            ),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert fake_run_runner_tool.last_input.as_of_override is None
+    assert result.warnings[0].startswith("[WARN] Config drift detected:")
+    assert "as_of" in result.warnings[1]
+
+
+def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(tmp_path: Path) -> None:
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-03-31", period="800d")
+    write_config(runner_config_path, as_of="2025-04-01", period="800d")
+
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=FakeRunRunnerTool(),
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"),
+                config_path=bt_config_path,
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"),
+                config_path=runner_config_path,
+            ),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert result.warnings[0] == "[WARN] Config drift detected: 1 differences found (1 critical, 0 warning, 0 info)"
+    assert result.warnings[1] == "- [CRITICAL] as_of: BT='2025-03-31' | RUN='2025-04-01'"

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+import tomllib
 
+from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
 from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
 from app.domain.bt_run.run_context import CompareMode
 from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
@@ -30,6 +33,17 @@ class BtRunAgentInput:
     compare_mode: CompareMode = CompareMode.LATEST
 
 
+@dataclass(frozen=True, slots=True)
+class AsOfResolution:
+    backtest_as_of: str | None
+    runner_as_of: str | None
+    runner_as_of_override: str | None
+
+    @property
+    def runner_auto_aligned(self) -> bool:
+        return self.runner_as_of_override is not None
+
+
 class BtRunAgent:
     """
     Orchestriert einen vollständigen BT/RUN-Durchlauf:
@@ -53,7 +67,8 @@ class BtRunAgent:
         self._compare_config_tool = compare_config_tool
 
     def execute(self, agent_input: BtRunAgentInput) -> RunResult:
-        config_result, warnings = self._collect_config_warnings(agent_input)
+        as_of_resolution = self._resolve_effective_as_of(agent_input)
+        config_result, warnings = self._collect_config_warnings(agent_input, as_of_resolution)
 
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
@@ -72,7 +87,12 @@ class BtRunAgent:
                 warnings=warnings,
             )
 
-        runner_result = self._run_runner_tool.execute(agent_input.runner_input)
+        runner_result = self._run_runner_tool.execute(
+            replace(
+                agent_input.runner_input,
+                as_of_override=as_of_resolution.runner_as_of_override,
+            )
+        )
 
         if not runner_result.success:
             return self._failed_run_result(
@@ -99,6 +119,7 @@ class BtRunAgent:
     def _collect_config_warnings(
         self,
         agent_input: BtRunAgentInput,
+        as_of_resolution: AsOfResolution,
     ) -> tuple[object | None, tuple[str, ...]]:
         warnings: list[str] = []
         config_result = None
@@ -114,11 +135,88 @@ class BtRunAgent:
                 )
             )
 
-            if not config_result.matched and config_result.has_critical_differences:
-                warnings.append(f"[WARN] Config drift detected: {config_result.message}")
-                warnings.extend(config_result.formatted_differences)
+            differences = self._filter_reported_config_differences(
+                config_result.differences,
+                as_of_resolution,
+            )
+
+            if any(diff.severity == ConfigDiffSeverity.CRITICAL for diff in differences):
+                warnings.append(
+                    f"[WARN] Config drift detected: {self._build_config_drift_message(differences)}"
+                )
+                warnings.extend(self._format_config_difference(diff) for diff in differences)
+
+        if as_of_resolution.runner_auto_aligned:
+            warnings.append(
+                f"[INFO] Runner as_of auto-aligned to backtest as_of: "
+                f"{as_of_resolution.runner_as_of_override}"
+            )
 
         return config_result, tuple(warnings)
+
+    def _resolve_effective_as_of(self, agent_input: BtRunAgentInput) -> AsOfResolution:
+        backtest_as_of = self._load_config_as_of(agent_input.backtest_input.config_path)
+        runner_as_of = self._load_config_as_of(agent_input.runner_input.config_path)
+        runner_as_of_override = None
+
+        if runner_as_of is None and backtest_as_of is not None:
+            runner_as_of_override = backtest_as_of
+
+        return AsOfResolution(
+            backtest_as_of=backtest_as_of,
+            runner_as_of=runner_as_of,
+            runner_as_of_override=runner_as_of_override,
+        )
+
+    @staticmethod
+    def _load_config_as_of(config_path: Path | None) -> str | None:
+        if config_path is None or not config_path.exists():
+            return None
+
+        with config_path.open("rb") as file_obj:
+            payload = tomllib.load(file_obj)
+
+        as_of = payload.get("as_of")
+        if not isinstance(as_of, str):
+            return None
+
+        normalized = as_of.strip()
+        return normalized or None
+
+    @staticmethod
+    def _filter_reported_config_differences(
+        differences: tuple[ConfigDifference, ...],
+        as_of_resolution: AsOfResolution,
+    ) -> tuple[ConfigDifference, ...]:
+        if not as_of_resolution.runner_auto_aligned:
+            return differences
+
+        return tuple(
+            diff
+            for diff in differences
+            if not (
+                diff.key == "as_of"
+                and diff.bt_value == as_of_resolution.backtest_as_of
+                and diff.run_value is None
+            )
+        )
+
+    @staticmethod
+    def _build_config_drift_message(differences: tuple[ConfigDifference, ...]) -> str:
+        critical_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.CRITICAL)
+        warning_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.WARNING)
+        info_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.INFO)
+        return (
+            f"{len(differences)} differences found "
+            f"({critical_count} critical, {warning_count} warning, {info_count} info)"
+        )
+
+    @staticmethod
+    def _format_config_difference(diff: ConfigDifference) -> str:
+        return (
+            f"- [{diff.severity.value.upper()}] {diff.key}: "
+            f"BT={diff.bt_value!r} | RUN={diff.run_value!r}"
+        )
 
     def _execute_compare(self, agent_input: BtRunAgentInput) -> CompareResult:
         if agent_input.compare_mode == CompareMode.LATEST:

@@ -12,6 +12,7 @@ class RunRunnerToolInput:
     config_path: Path
     cwd: str | Path | None = None
     timeout_seconds: int | None = None
+    as_of_override: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,8 +30,9 @@ class RunRunnerTool:
         self._process_runner = process_runner
 
     def execute(self, tool_input: RunRunnerToolInput) -> RunRunnerToolResult:
+        command = self._build_command(tool_input)
         result = self._process_runner.run(
-            tool_input.command,
+            command,
             cwd=tool_input.cwd,
             timeout_seconds=tool_input.timeout_seconds,
         )
@@ -39,3 +41,10 @@ class RunRunnerTool:
             success=result.succeeded,
             process_result=result,
         )
+
+    @staticmethod
+    def _build_command(tool_input: RunRunnerToolInput) -> tuple[str, ...]:
+        if tool_input.as_of_override is None or "--as-of" in tool_input.command:
+            return tool_input.command
+
+        return tool_input.command + ("--as-of", tool_input.as_of_override)
