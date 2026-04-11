@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+import csv
 import tomllib
 
 from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
@@ -31,6 +32,7 @@ class BtRunAgentInput:
     runner_input: RunRunnerToolInput
     compare_input: BtRunCompareInput
     compare_mode: CompareMode = CompareMode.LATEST
+    seed_runner_previous_from_backtest: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +44,18 @@ class AsOfResolution:
     @property
     def runner_auto_aligned(self) -> bool:
         return self.runner_as_of_override is not None
+
+    @property
+    def effective_runner_as_of(self) -> str | None:
+        return self.runner_as_of_override or self.runner_as_of or self.backtest_as_of
+
+
+@dataclass(frozen=True, slots=True)
+class RunnerPreviousSeedResult:
+    seeded: bool
+    message: str
+    previous_as_of: str | None = None
+    row_count: int = 0
 
 
 class BtRunAgent:
@@ -86,6 +100,10 @@ class BtRunAgent:
                 compare_message="Compare not executed because backtest failed",
                 warnings=warnings,
             )
+
+        if agent_input.seed_runner_previous_from_backtest:
+            seed_result = self._seed_runner_previous_from_backtest(agent_input, as_of_resolution)
+            warnings = warnings + (seed_result.message,)
 
         runner_result = self._run_runner_tool.execute(
             replace(
@@ -167,6 +185,164 @@ class BtRunAgent:
             runner_as_of=runner_as_of,
             runner_as_of_override=runner_as_of_override,
         )
+
+    def _seed_runner_previous_from_backtest(
+        self,
+        agent_input: BtRunAgentInput,
+        as_of_resolution: AsOfResolution,
+    ) -> RunnerPreviousSeedResult:
+        runner_as_of = as_of_resolution.effective_runner_as_of
+        if runner_as_of is None:
+            return RunnerPreviousSeedResult(
+                seeded=False,
+                message="[INFO] Runner previous-state seed skipped: no effective runner as_of",
+            )
+
+        try:
+            bt_positions_path = self._infer_backtest_positions_path(agent_input.backtest_input)
+            runner_positions_path = self._infer_runner_positions_path(agent_input.runner_input)
+            seed_result = self._seed_runner_positions_from_backtest_positions(
+                bt_positions_path=bt_positions_path,
+                runner_positions_path=runner_positions_path,
+                runner_as_of=runner_as_of,
+            )
+        except Exception as exc:
+            return RunnerPreviousSeedResult(
+                seeded=False,
+                message=f"[WARN] Runner previous-state seed failed: {exc}",
+            )
+
+        return seed_result
+
+    @classmethod
+    def _infer_backtest_positions_path(cls, tool_input: RunBacktestToolInput) -> Path:
+        config = cls._load_toml(tool_input.config_path)
+        save_dir = cls._resolve_path(
+            config.get("save_dir", "aktien_oop"),
+            base_cwd=tool_input.cwd,
+            config_path=tool_input.config_path,
+        )
+        frequency = str(config.get("rebalance", {}).get("frequency", config.get("frequency", "monthly")))
+        top_k = int(config.get("topk", {}).get("top_k", config.get("top_k")))
+        buffer_k = int(config.get("topk", {}).get("buffer_k", config.get("buffer_k")))
+        return save_dir / f"bt_{frequency}_{top_k}x{buffer_k}_positions.csv"
+
+    @classmethod
+    def _infer_runner_positions_path(cls, tool_input: RunRunnerToolInput) -> Path:
+        config = cls._load_toml(tool_input.config_path)
+        save_dir = cls._resolve_path(
+            config.get("save_dir", "aktien_oop"),
+            base_cwd=tool_input.cwd,
+            config_path=tool_input.config_path,
+        )
+        return save_dir / "portfolio_positions.csv"
+
+    @staticmethod
+    def _load_toml(config_path: Path) -> dict:
+        with config_path.open("rb") as file_obj:
+            return tomllib.load(file_obj)
+
+    @staticmethod
+    def _resolve_path(value: object, *, base_cwd: str | Path | None, config_path: Path) -> Path:
+        path = Path(str(value))
+        if path.is_absolute():
+            return path
+        if base_cwd is not None:
+            return Path(base_cwd) / path
+        return config_path.parent / path
+
+    @classmethod
+    def _seed_runner_positions_from_backtest_positions(
+        cls,
+        *,
+        bt_positions_path: Path,
+        runner_positions_path: Path,
+        runner_as_of: str,
+    ) -> RunnerPreviousSeedResult:
+        if not bt_positions_path.exists():
+            return RunnerPreviousSeedResult(
+                seeded=False,
+                message=f"[INFO] Runner previous-state seed skipped: BT positions not found: {bt_positions_path}",
+            )
+
+        bt_rows = cls._read_csv_rows(bt_positions_path)
+        if not bt_rows:
+            return RunnerPreviousSeedResult(
+                seeded=False,
+                message=f"[INFO] Runner previous-state seed skipped: BT positions empty: {bt_positions_path}",
+            )
+
+        previous_rows = cls._latest_rows_before(bt_rows, runner_as_of)
+        if not previous_rows:
+            return RunnerPreviousSeedResult(
+                seeded=False,
+                message=f"[INFO] Runner previous-state seed skipped: no BT snapshot before {runner_as_of}",
+            )
+
+        previous_as_of = previous_rows[0]["as_of"]
+        existing_rows = cls._read_csv_rows(runner_positions_path) if runner_positions_path.exists() else []
+        combined_rows = cls._dedupe_position_rows(existing_rows + previous_rows)
+        fieldnames = cls._merged_fieldnames(existing_rows + previous_rows)
+
+        runner_positions_path.parent.mkdir(parents=True, exist_ok=True)
+        cls._write_csv_rows(runner_positions_path, combined_rows, fieldnames)
+
+        return RunnerPreviousSeedResult(
+            seeded=True,
+            previous_as_of=previous_as_of,
+            row_count=len(previous_rows),
+            message=(
+                "[INFO] Runner previous-state seeded from backtest positions: "
+                f"prev_as_of={previous_as_of}, rows={len(previous_rows)}"
+            ),
+        )
+
+    @staticmethod
+    def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            lines = (line for line in file_obj if line.strip() and not line.lstrip().startswith("#"))
+            return list(csv.DictReader(lines))
+
+    @classmethod
+    def _latest_rows_before(cls, rows: list[dict[str, str]], as_of: str) -> list[dict[str, str]]:
+        candidates = [
+            row
+            for row in rows
+            if row.get("as_of") and row.get("ticker") and row["as_of"] < as_of
+        ]
+        if not candidates:
+            return []
+
+        previous_as_of = max(row["as_of"] for row in candidates)
+        return sorted(
+            (dict(row) for row in candidates if row["as_of"] == previous_as_of),
+            key=lambda row: row["ticker"],
+        )
+
+    @staticmethod
+    def _dedupe_position_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        by_key: dict[tuple[str, str], dict[str, str]] = {}
+        for row in rows:
+            as_of = row.get("as_of")
+            ticker = row.get("ticker")
+            if not as_of or not ticker:
+                continue
+            by_key[(as_of, ticker)] = dict(row)
+
+        return [by_key[key] for key in sorted(by_key)]
+
+    @staticmethod
+    def _merged_fieldnames(rows: list[dict[str, str]]) -> list[str]:
+        preferred = ["as_of", "ticker", "weight", "score", "rank", "allocation_pct", "sector"]
+        seen = {key for row in rows for key in row}
+        return [key for key in preferred if key in seen] + sorted(seen - set(preferred))
+
+    @staticmethod
+    def _write_csv_rows(path: Path, rows: list[dict[str, str]], fieldnames: list[str]) -> None:
+        with path.open("w", encoding="utf-8", newline="") as file_obj:
+            writer = csv.DictWriter(file_obj, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
 
     @staticmethod
     def _load_config_as_of(config_path: Path | None) -> str | None:

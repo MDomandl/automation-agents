@@ -146,6 +146,7 @@ def main() -> None:
                 ignore_cash=context.ignore_cash,
             ),
             compare_mode=context.compare_mode,
+            seed_runner_previous_from_backtest=True,
         )
     )
 

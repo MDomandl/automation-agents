@@ -320,3 +320,140 @@ def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(t
 
     assert result.warnings[0] == "[WARN] Config drift detected: 1 differences found (1 critical, 0 warning, 0 info)"
     assert result.warnings[1] == "- [CRITICAL] as_of: BT='2025-03-31' | RUN='2025-04-01'"
+
+
+def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp_path: Path) -> None:
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    bt_save_dir = tmp_path / "bt_out"
+    runner_save_dir = tmp_path / "runner_out"
+    bt_save_dir.mkdir()
+    runner_save_dir.mkdir()
+    write_config(bt_config_path, as_of="2025-10-08")
+    bt_config_path.write_text(
+        '\n'.join(
+            [
+                'as_of = "2025-10-08"',
+                f'save_dir = "{bt_save_dir.as_posix()}"',
+                'top_k = 12',
+                'buffer_k = 3',
+                '[rebalance]',
+                'frequency = "monthly"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner_config_path.write_text(
+        '\n'.join(
+            [
+                f'save_dir = "{runner_save_dir.as_posix()}"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (bt_save_dir / "bt_monthly_12x3_positions.csv").write_text(
+        "\n".join(
+            [
+                "# run_id=unit-test",
+                "as_of,ticker,allocation_pct,sector",
+                "2025-09-30,AVGO,11.11,Information Technology",
+                "2025-09-30,STX,11.11,Information Technology",
+                "2025-10-08,GLW,11.11,Information Technology",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    fake_run_runner_tool = FakeRunRunnerTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_run_runner_tool,
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
+            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            compare_input=BtRunCompareInput(),
+            seed_runner_previous_from_backtest=True,
+        )
+    )
+
+    seeded = (runner_save_dir / "portfolio_positions.csv").read_text(encoding="utf-8")
+    assert "2025-09-30,AVGO" in seeded
+    assert "2025-09-30,STX" in seeded
+    assert "2025-10-08,GLW" not in seeded
+    assert (
+        "[INFO] Runner previous-state seeded from backtest positions: prev_as_of=2025-09-30, rows=2"
+        in result.warnings
+    )
+    assert fake_run_runner_tool.last_input.as_of_override == "2025-10-08"
+
+
+def test_bt_run_agent_seed_replaces_duplicate_runner_snapshot_rows(tmp_path: Path) -> None:
+    bt_positions_path = tmp_path / "bt_positions.csv"
+    runner_positions_path = tmp_path / "portfolio_positions.csv"
+    bt_positions_path.write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2025-09-30,AVGO,11.11",
+                "2025-09-30,STX,11.11",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner_positions_path.write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2025-09-30,AVGO,99.99",
+                "2025-10-08,GLW,11.11",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    BtRunAgent._seed_runner_positions_from_backtest_positions(
+        bt_positions_path=bt_positions_path,
+        runner_positions_path=runner_positions_path,
+        runner_as_of="2025-10-08",
+    )
+
+    persisted = runner_positions_path.read_text(encoding="utf-8")
+    assert persisted.count("2025-09-30,AVGO") == 1
+    assert "2025-09-30,AVGO,11.11" in persisted
+    assert "2025-10-08,GLW,11.11" in persisted
+
+
+def test_bt_run_agent_seed_skips_when_no_backtest_previous_snapshot_exists(tmp_path: Path) -> None:
+    bt_positions_path = tmp_path / "bt_positions.csv"
+    runner_positions_path = tmp_path / "portfolio_positions.csv"
+    bt_positions_path.write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2025-10-08,GLW,11.11",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = BtRunAgent._seed_runner_positions_from_backtest_positions(
+        bt_positions_path=bt_positions_path,
+        runner_positions_path=runner_positions_path,
+        runner_as_of="2025-10-08",
+    )
+
+    assert result.seeded is False
+    assert result.message == "[INFO] Runner previous-state seed skipped: no BT snapshot before 2025-10-08"
+    assert not runner_positions_path.exists()
