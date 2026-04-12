@@ -322,6 +322,63 @@ def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(t
     assert result.warnings[1] == "- [CRITICAL] as_of: BT='2025-03-31' | RUN='2025-04-01'"
 
 
+def test_bt_run_agent_reports_matching_universe(tmp_path: Path) -> None:
+    universe_path = tmp_path / "tickers.txt"
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    universe_path.write_text("MSFT\nAAPL\n", encoding="utf-8")
+    bt_config_path.write_text(f'tickers_file = "{universe_path.as_posix()}"\n', encoding="utf-8")
+    runner_config_path.write_text(f'tickers_file = "{universe_path.as_posix()}"\n', encoding="utf-8")
+
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=FakeRunRunnerTool(),
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
+            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert result.warnings[0].startswith("[INFO] Universe match: count=2, hash=")
+
+
+def test_bt_run_agent_warns_on_universe_drift(tmp_path: Path) -> None:
+    bt_universe_path = tmp_path / "bt_tickers.txt"
+    runner_universe_path = tmp_path / "runner_tickers.txt"
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    bt_universe_path.write_text("AAPL\nMSFT\n", encoding="utf-8")
+    runner_universe_path.write_text("AAPL\nNVDA\n", encoding="utf-8")
+    bt_config_path.write_text(f'tickers_file = "{bt_universe_path.as_posix()}"\n', encoding="utf-8")
+    runner_config_path.write_text(f'tickers_file = "{runner_universe_path.as_posix()}"\n', encoding="utf-8")
+
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=FakeRunRunnerTool(),
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=build_real_compare_config_tool(),
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
+            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert result.warnings[0].startswith("[WARN] Universe drift detected: BT count=2, hash=")
+    assert "RUN count=2, hash=" in result.warnings[0]
+
+
 def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp_path: Path) -> None:
     bt_config_path = tmp_path / "bt.toml"
     runner_config_path = tmp_path / "runner.toml"

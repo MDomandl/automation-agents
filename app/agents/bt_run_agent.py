@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 import csv
+import hashlib
 import tomllib
 
 from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
@@ -56,6 +57,12 @@ class RunnerPreviousSeedResult:
     message: str
     previous_as_of: str | None = None
     row_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class UniverseFingerprint:
+    count: int
+    digest: str
 
 
 class BtRunAgent:
@@ -146,6 +153,10 @@ class BtRunAgent:
             agent_input.backtest_input.config_path is not None
             and agent_input.runner_input.config_path is not None
         ):
+            universe_message = self._compare_configured_universes(agent_input)
+            if universe_message is not None:
+                warnings.append(universe_message)
+
             config_result = self._compare_config_tool.execute(
                 CompareConfigToolInput(
                     bt_config_path=agent_input.backtest_input.config_path,
@@ -185,6 +196,55 @@ class BtRunAgent:
             runner_as_of=runner_as_of,
             runner_as_of_override=runner_as_of_override,
         )
+
+    @classmethod
+    def _compare_configured_universes(cls, agent_input: BtRunAgentInput) -> str | None:
+        try:
+            bt_config = cls._load_toml(agent_input.backtest_input.config_path)
+            runner_config = cls._load_toml(agent_input.runner_input.config_path)
+            if "tickers_file" not in bt_config or "tickers_file" not in runner_config:
+                return None
+
+            bt_universe = cls._load_universe_fingerprint(agent_input.backtest_input)
+            runner_universe = cls._load_universe_fingerprint(agent_input.runner_input)
+        except Exception as exc:
+            return f"[WARN] Universe check failed: {exc}"
+
+        if bt_universe == runner_universe:
+            return (
+                "[INFO] Universe match: "
+                f"count={bt_universe.count}, hash={bt_universe.digest}"
+            )
+
+        return (
+            "[WARN] Universe drift detected: "
+            f"BT count={bt_universe.count}, hash={bt_universe.digest}; "
+            f"RUN count={runner_universe.count}, hash={runner_universe.digest}"
+        )
+
+    @classmethod
+    def _load_universe_fingerprint(
+        cls,
+        tool_input: RunBacktestToolInput | RunRunnerToolInput,
+    ) -> UniverseFingerprint:
+        config = cls._load_toml(tool_input.config_path)
+        tickers_path = cls._resolve_path(
+            config.get("tickers_file", "aktien_oop/sp500_tickers.txt"),
+            base_cwd=tool_input.cwd,
+            config_path=tool_input.config_path,
+        )
+        tickers = cls._read_tickers(tickers_path)
+        digest = hashlib.sha1(",".join(sorted(tickers)).encode("utf-8")).hexdigest()
+        return UniverseFingerprint(count=len(tickers), digest=digest)
+
+    @staticmethod
+    def _read_tickers(path: Path) -> list[str]:
+        tickers: list[str] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            ticker = line.strip()
+            if ticker and not ticker.startswith("#"):
+                tickers.append(ticker)
+        return tickers
 
     def _seed_runner_previous_from_backtest(
         self,
