@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -14,10 +15,28 @@ from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
 
+@dataclass(frozen=True, slots=True)
+class ProfileBehavior:
+    compare_mode: CompareMode
+    runner_extra_args: tuple[str, ...] = ()
+
+
+def resolve_profile_behavior(profile: RunProfile) -> ProfileBehavior:
+    if profile == RunProfile.SHORT:
+        return ProfileBehavior(compare_mode=CompareMode.LATEST)
+
+    if profile == RunProfile.PROBLEM:
+        return ProfileBehavior(
+            compare_mode=CompareMode.ALL,
+            runner_extra_args=("--dump-selection", "--dump-weights"),
+        )
+
+    return ProfileBehavior(compare_mode=CompareMode.ALL)
+
+
 def build_run_context(profile: RunProfile) -> RunContext:
     ai_agents_dir = Path(r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents")
     aktien_oop_dir = ai_agents_dir / "aktien_oop"
-    decisions_dir = aktien_oop_dir / "decisions"
 
     now = datetime.now()
 
@@ -25,22 +44,19 @@ def build_run_context(profile: RunProfile) -> RunContext:
     run_label = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}_{profile.value}"
 
     output_dir = ai_agents_dir / "automation_runs" / run_label
+    decisions_dir = aktien_oop_dir / "decisions" / run_id
 
     backtest_config_path = aktien_oop_dir / "backtest_config.toml"
     runner_config_path = aktien_oop_dir / "configs" / "runner_config.toml"
 
-    compare_mode = (
-        CompareMode.LATEST
-        if profile == RunProfile.SHORT
-        else CompareMode.ALL
-    )
+    profile_behavior = resolve_profile_behavior(profile)
 
     return RunContext(
         run_id=run_id,
         run_timestamp=now,
         run_label=run_label,
         profile=profile,
-        compare_mode=compare_mode,
+        compare_mode=profile_behavior.compare_mode,
         ai_agents_dir=ai_agents_dir,
         aktien_oop_dir=aktien_oop_dir,
         decisions_dir=decisions_dir,
@@ -102,7 +118,9 @@ def main() -> None:
     args = parse_args()
     profile = RunProfile(args.profile)
     context = build_run_context(profile)
+    profile_behavior = resolve_profile_behavior(profile)
     context.output_dir.mkdir(parents=True, exist_ok=True)
+    context.decisions_dir.mkdir(parents=True, exist_ok=True)
 
     print("run_id:", context.run_id)
     print("run_label:", context.run_label)
@@ -126,6 +144,8 @@ def main() -> None:
                     "aktien_oop.backtest",
                     "--config",
                     str(context.backtest_config_path),
+                    "--decisions-dir",
+                    str(context.decisions_dir),
                 ),
                 cwd=context.ai_agents_dir,
                 config_path=context.backtest_config_path,
@@ -137,7 +157,9 @@ def main() -> None:
                     "aktien_oop.main",
                     "--config",
                     str(context.runner_config_path),
-                ),
+                    "--decisions-dir",
+                    str(context.decisions_dir),
+                ) + profile_behavior.runner_extra_args,
                 cwd=context.ai_agents_dir,
                 config_path=context.runner_config_path,
             ),
@@ -148,6 +170,13 @@ def main() -> None:
             compare_mode=context.compare_mode,
             seed_runner_previous_from_backtest=True,
         )
+    )
+    result = replace(
+        result,
+        warnings=(
+            f"[INFO] Using run-specific decisions directory: {context.decisions_dir}",
+            *result.warnings,
+        ),
     )
 
     (context.output_dir / "backtest_stdout.txt").write_text(result.backtest.stdout, encoding="utf-8")

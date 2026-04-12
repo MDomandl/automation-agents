@@ -2,9 +2,78 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from app.application.bt_run.dto import CompareAllRunsRequest
+from app.application.bt_run.use_cases import CompareAllRunsUseCase
 from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
-from scripts.run_bt_run_agent import build_run_manifest
+from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
+from scripts.run_bt_run_agent import build_run_context, build_run_manifest, resolve_profile_behavior
+
+
+def test_run_profile_compare_modes() -> None:
+    assert resolve_profile_behavior(RunProfile.SHORT).compare_mode == CompareMode.LATEST
+    assert resolve_profile_behavior(RunProfile.MEDIUM).compare_mode == CompareMode.ALL
+    assert resolve_profile_behavior(RunProfile.LONG).compare_mode == CompareMode.ALL
+    assert resolve_profile_behavior(RunProfile.PROBLEM).compare_mode == CompareMode.ALL
+
+
+def test_problem_profile_enables_runner_debug_dump_flags() -> None:
+    behavior = resolve_profile_behavior(RunProfile.PROBLEM)
+
+    assert behavior.runner_extra_args == ("--dump-selection", "--dump-weights")
+
+
+def test_non_problem_profiles_do_not_add_runner_debug_dump_flags() -> None:
+    assert resolve_profile_behavior(RunProfile.SHORT).runner_extra_args == ()
+    assert resolve_profile_behavior(RunProfile.MEDIUM).runner_extra_args == ()
+    assert resolve_profile_behavior(RunProfile.LONG).runner_extra_args == ()
+
+
+def test_build_run_context_uses_profile_behavior_for_compare_mode() -> None:
+    assert build_run_context(RunProfile.SHORT).compare_mode == CompareMode.LATEST
+    assert build_run_context(RunProfile.MEDIUM).compare_mode == CompareMode.ALL
+    assert build_run_context(RunProfile.LONG).compare_mode == CompareMode.ALL
+    assert build_run_context(RunProfile.PROBLEM).compare_mode == CompareMode.ALL
+
+
+def test_build_run_context_uses_run_specific_decisions_directory() -> None:
+    context = build_run_context(RunProfile.LONG)
+
+    assert context.decisions_dir.name == context.run_id
+    assert context.decisions_dir.parent.name == "decisions"
+
+
+def test_compare_all_uses_only_current_run_decisions_directory(tmp_path: Path) -> None:
+    old_run_dir = tmp_path / "decisions" / "old-run"
+    current_run_dir = tmp_path / "decisions" / "current-run"
+    old_run_dir.mkdir(parents=True)
+    current_run_dir.mkdir(parents=True)
+
+    _write_decision_bundle(old_run_dir / "BT_old_2025-01-31.json", "BT", "2025-01-31", {"AAPL": 1.0})
+    _write_decision_bundle(old_run_dir / "RUN_old_2025-01-31.json", "RUN", "2025-01-31", {"MSFT": 1.0})
+    _write_decision_bundle(current_run_dir / "BT_current_2025-01-31.json", "BT", "2025-01-31", {"AAPL": 1.0})
+    _write_decision_bundle(current_run_dir / "RUN_current_2025-01-31.json", "RUN", "2025-01-31", {"AAPL": 1.0})
+
+    response = CompareAllRunsUseCase(FileDecisionBundleStore(current_run_dir)).execute(
+        CompareAllRunsRequest()
+    )
+
+    assert response.success is True
+    assert response.matched_count == 1
+    assert response.mismatched_count == 0
+
+
+def _write_decision_bundle(path: Path, kind: str, as_of: str, weights: dict[str, float]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "kind": kind,
+                "as_of": as_of,
+                "new_weights": weights,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_build_run_manifest_includes_full_step_result_fields() -> None:

@@ -199,6 +199,12 @@ class BtRunAgent:
 
     @classmethod
     def _compare_configured_universes(cls, agent_input: BtRunAgentInput) -> str | None:
+        if (
+            not agent_input.backtest_input.config_path.exists()
+            or not agent_input.runner_input.config_path.exists()
+        ):
+            return None
+
         try:
             bt_config = cls._load_toml(agent_input.backtest_input.config_path)
             runner_config = cls._load_toml(agent_input.runner_input.config_path)
