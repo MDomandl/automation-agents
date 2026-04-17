@@ -41,4 +41,5 @@ def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
         compare_latest_runs_tool=compare_latest_runs_tool,
         compare_all_runs_tool=compare_all_runs_tool,
         compare_config_tool=compare_config_tool,
+        decisions_dir=decisions_dir,
     )

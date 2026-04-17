@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import json
 import sys
+import tomllib
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgentInput, BtRunCompareInput
@@ -19,19 +21,84 @@ from app.tools.process.run_runner_tool import RunRunnerToolInput
 class ProfileBehavior:
     compare_mode: CompareMode
     runner_extra_args: tuple[str, ...] = ()
+    backtest_lookback_months: int | None = None
+    compare_point_count: int = 1
+    description: str = ""
 
 
 def resolve_profile_behavior(profile: RunProfile) -> ProfileBehavior:
     if profile == RunProfile.SHORT:
-        return ProfileBehavior(compare_mode=CompareMode.LATEST)
+        return ProfileBehavior(
+            compare_mode=CompareMode.LATEST,
+            backtest_lookback_months=18,
+            compare_point_count=1,
+            description="fast smoke test: latest compare, 18-month backtest scope",
+        )
 
     if profile == RunProfile.PROBLEM:
         return ProfileBehavior(
             compare_mode=CompareMode.ALL,
             runner_extra_args=("--dump-selection", "--dump-weights"),
+            backtest_lookback_months=18,
+            compare_point_count=1,
+            description="focused debug run: all compare, 18-month backtest scope, runner selection/weight dumps",
         )
 
-    return ProfileBehavior(compare_mode=CompareMode.ALL)
+    if profile == RunProfile.MEDIUM:
+        return ProfileBehavior(
+            compare_mode=CompareMode.ALL,
+            backtest_lookback_months=30,
+            compare_point_count=3,
+            description="development run: all compare, 30-month backtest scope, last 3 BT as_of points",
+        )
+
+    return ProfileBehavior(
+        compare_mode=CompareMode.ALL,
+        backtest_lookback_months=None,
+        compare_point_count=6,
+        description="deep validation run: all compare, full configured backtest scope, last 6 BT as_of points",
+    )
+
+
+def build_backtest_profile_args(
+    behavior: ProfileBehavior,
+    *,
+    backtest_config_path: Path,
+) -> tuple[str, ...]:
+    if behavior.backtest_lookback_months is None:
+        return ()
+
+    as_of = _load_backtest_as_of(backtest_config_path)
+    if as_of is None:
+        return ()
+
+    start = _subtract_months(as_of, behavior.backtest_lookback_months)
+    return ("--start", start.isoformat())
+
+
+def _load_backtest_as_of(config_path: Path) -> date | None:
+    if not config_path.exists():
+        return None
+
+    with config_path.open("rb") as file_obj:
+        payload = tomllib.load(file_obj)
+
+    raw_as_of = payload.get("as_of")
+    if raw_as_of is None and isinstance(payload.get("core"), dict):
+        raw_as_of = payload["core"].get("as_of")
+
+    if not isinstance(raw_as_of, str) or not raw_as_of.strip():
+        return None
+
+    return date.fromisoformat(raw_as_of.strip())
+
+
+def _subtract_months(value: date, months: int) -> date:
+    month_index = value.year * 12 + value.month - 1 - months
+    year = month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def build_run_context(profile: RunProfile) -> RunContext:
@@ -88,6 +155,8 @@ def build_run_manifest(context: RunContext, result: RunResult) -> dict:
         "run_label": context.run_label,
         "run_timestamp": context.run_timestamp.isoformat(),
         "profile": context.profile.value,
+        "profile_behavior": resolve_profile_behavior(context.profile).description,
+        "compare_point_count": resolve_profile_behavior(context.profile).compare_point_count,
         "compare_mode": context.compare_mode.value,
         "output_dir": str(context.output_dir),
         "decisions_dir": str(context.decisions_dir),
@@ -119,6 +188,10 @@ def main() -> None:
     profile = RunProfile(args.profile)
     context = build_run_context(profile)
     profile_behavior = resolve_profile_behavior(profile)
+    backtest_profile_args = build_backtest_profile_args(
+        profile_behavior,
+        backtest_config_path=context.backtest_config_path,
+    )
     context.output_dir.mkdir(parents=True, exist_ok=True)
     context.decisions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,6 +199,7 @@ def main() -> None:
     print("run_label:", context.run_label)
     print("profile:", context.profile)
     print("compare_mode:", context.compare_mode)
+    print("profile_behavior:", profile_behavior.description)
     print("output_dir:", context.output_dir)
     print("ai_agents_dir:", context.ai_agents_dir)
     print("aktien_oop_dir:", context.aktien_oop_dir)
@@ -146,7 +220,7 @@ def main() -> None:
                     str(context.backtest_config_path),
                     "--decisions-dir",
                     str(context.decisions_dir),
-                ),
+                ) + backtest_profile_args,
                 cwd=context.ai_agents_dir,
                 config_path=context.backtest_config_path,
             ),
@@ -169,12 +243,14 @@ def main() -> None:
             ),
             compare_mode=context.compare_mode,
             seed_runner_previous_from_backtest=True,
+            compare_point_count=profile_behavior.compare_point_count,
         )
     )
     result = replace(
         result,
         warnings=(
             f"[INFO] Using run-specific decisions directory: {context.decisions_dir}",
+            f"[INFO] Profile behavior: {profile_behavior.description}",
             *result.warnings,
         ),
     )
@@ -188,6 +264,9 @@ def main() -> None:
     summary_text = (
         f"run_id: {context.run_id}\n"
         f"profile: {context.profile.value}\n"
+        f"profile_behavior: {profile_behavior.description}\n"
+        f"backtest_profile_args: {' '.join(backtest_profile_args) if backtest_profile_args else 'None'}\n"
+        f"compare_point_count: {profile_behavior.compare_point_count}\n"
         f"compare_mode: {context.compare_mode.value}\n"
         f"success: {result.success}\n"
         f"backtest_success: {result.backtest.success}\n"

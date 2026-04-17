@@ -7,7 +7,12 @@ from app.application.bt_run.use_cases import CompareAllRunsUseCase
 from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
-from scripts.run_bt_run_agent import build_run_context, build_run_manifest, resolve_profile_behavior
+from scripts.run_bt_run_agent import (
+    build_backtest_profile_args,
+    build_run_context,
+    build_run_manifest,
+    resolve_profile_behavior,
+)
 
 
 def test_run_profile_compare_modes() -> None:
@@ -15,6 +20,48 @@ def test_run_profile_compare_modes() -> None:
     assert resolve_profile_behavior(RunProfile.MEDIUM).compare_mode == CompareMode.ALL
     assert resolve_profile_behavior(RunProfile.LONG).compare_mode == CompareMode.ALL
     assert resolve_profile_behavior(RunProfile.PROBLEM).compare_mode == CompareMode.ALL
+
+
+def test_run_profiles_define_backtest_scope() -> None:
+    assert resolve_profile_behavior(RunProfile.SHORT).backtest_lookback_months == 18
+    assert resolve_profile_behavior(RunProfile.MEDIUM).backtest_lookback_months == 30
+    assert resolve_profile_behavior(RunProfile.LONG).backtest_lookback_months is None
+    assert resolve_profile_behavior(RunProfile.PROBLEM).backtest_lookback_months == 18
+
+
+def test_run_profiles_define_compare_point_counts() -> None:
+    assert resolve_profile_behavior(RunProfile.SHORT).compare_point_count == 1
+    assert resolve_profile_behavior(RunProfile.PROBLEM).compare_point_count == 1
+    assert resolve_profile_behavior(RunProfile.MEDIUM).compare_point_count == 3
+    assert resolve_profile_behavior(RunProfile.LONG).compare_point_count == 6
+    assert (
+        resolve_profile_behavior(RunProfile.LONG).compare_point_count
+        > resolve_profile_behavior(RunProfile.MEDIUM).compare_point_count
+    )
+
+
+def test_backtest_profile_args_apply_limited_scope(tmp_path: Path) -> None:
+    config_path = tmp_path / "bt.toml"
+    config_path.write_text('as_of = "2025-10-08"\n', encoding="utf-8")
+
+    args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.SHORT),
+        backtest_config_path=config_path,
+    )
+
+    assert args == ("--start", "2024-04-08")
+
+
+def test_backtest_profile_args_keep_full_scope_for_long(tmp_path: Path) -> None:
+    config_path = tmp_path / "bt.toml"
+    config_path.write_text('as_of = "2025-10-08"\n', encoding="utf-8")
+
+    args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.LONG),
+        backtest_config_path=config_path,
+    )
+
+    assert args == ()
 
 
 def test_problem_profile_enables_runner_debug_dump_flags() -> None:
@@ -120,6 +167,8 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
 
     manifest = build_run_manifest(context, result)
 
+    assert manifest["profile_behavior"] == "fast smoke test: latest compare, 18-month backtest scope"
+    assert manifest["compare_point_count"] == 1
     assert manifest["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert manifest["backtest"]["returncode"] == 0
     assert manifest["backtest"]["duration_seconds"] == 12.5

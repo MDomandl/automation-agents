@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 import csv
 import hashlib
+import json
 import tomllib
 
 from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
@@ -34,6 +35,7 @@ class BtRunAgentInput:
     compare_input: BtRunCompareInput
     compare_mode: CompareMode = CompareMode.LATEST
     seed_runner_previous_from_backtest: bool = False
+    compare_point_count: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +82,14 @@ class BtRunAgent:
         compare_latest_runs_tool: CompareLatestRunsTool,
         compare_all_runs_tool: CompareAllRunsTool,
         compare_config_tool: CompareConfigTool,
+        decisions_dir: str | Path | None = None,
     ):
         self._run_backtest_tool = run_backtest_tool
         self._run_runner_tool = run_runner_tool
         self._compare_latest_runs_tool = compare_latest_runs_tool
         self._compare_all_runs_tool = compare_all_runs_tool
         self._compare_config_tool = compare_config_tool
+        self._decisions_dir = Path(decisions_dir) if decisions_dir is not None else None
 
     def execute(self, agent_input: BtRunAgentInput) -> RunResult:
         as_of_resolution = self._resolve_effective_as_of(agent_input)
@@ -108,35 +112,59 @@ class BtRunAgent:
                 warnings=warnings,
             )
 
-        if agent_input.seed_runner_previous_from_backtest:
-            seed_result = self._seed_runner_previous_from_backtest(agent_input, as_of_resolution)
-            warnings = warnings + (seed_result.message,)
-
-        runner_result = self._run_runner_tool.execute(
-            replace(
-                agent_input.runner_input,
-                as_of_override=as_of_resolution.runner_as_of_override,
-            )
-        )
-
-        if not runner_result.success:
+        runner_as_of_points = self._resolve_runner_as_of_points(agent_input, as_of_resolution)
+        if not runner_as_of_points:
             return self._failed_run_result(
                 backtest=self._step_result(backtest_result.process_result, success=True),
-                runner=self._step_result(
-                    runner_result.process_result,
-                    success=False,
-                    message="Runner failed",
-                ),
-                compare_message="Compare not executed because runner failed",
+                runner=StepResult(success=False, message="Runner not executed"),
+                compare_message="Compare not executed because no runner as_of could be resolved",
                 warnings=warnings,
             )
 
+        warnings = warnings + (
+            f"[INFO] Runner compare points: count={len(runner_as_of_points)}, "
+            f"as_of={','.join(point or 'config' for point in runner_as_of_points)}",
+        )
+
+        runner_process_results = []
+        for index, runner_as_of in enumerate(runner_as_of_points):
+            point_resolution = replace(as_of_resolution, runner_as_of_override=runner_as_of)
+            should_seed = agent_input.seed_runner_previous_from_backtest and index == 0
+            if should_seed:
+                seed_result = self._seed_runner_previous_from_backtest(agent_input, point_resolution)
+                warnings = warnings + (seed_result.message,)
+            elif agent_input.seed_runner_previous_from_backtest and len(runner_as_of_points) > 1 and index == 1:
+                warnings = warnings + (
+                    "[INFO] Runner previous-state seed skipped for subsequent compare points",
+                )
+
+            runner_result = self._run_runner_tool.execute(
+                replace(
+                    agent_input.runner_input,
+                    as_of_override=runner_as_of,
+                )
+            )
+            runner_process_results.append(runner_result.process_result)
+
+            if not runner_result.success:
+                return self._failed_run_result(
+                    backtest=self._step_result(backtest_result.process_result, success=True),
+                    runner=self._step_result(
+                        runner_result.process_result,
+                        success=False,
+                        message=f"Runner failed for as_of={runner_as_of or 'config'}",
+                    ),
+                    compare_message="Compare not executed because runner failed",
+                    warnings=warnings,
+                )
+
         compare_result = self._execute_compare(agent_input)
+        runner_step = self._combined_runner_step_result(runner_process_results)
 
         return RunResult(
             success=compare_result.success,
             backtest=self._step_result(backtest_result.process_result, success=True),
-            runner=self._step_result(runner_result.process_result, success=True),
+            runner=runner_step,
             compare=compare_result,
             warnings=warnings,
         )
@@ -196,6 +224,43 @@ class BtRunAgent:
             runner_as_of=runner_as_of,
             runner_as_of_override=runner_as_of_override,
         )
+
+    def _resolve_runner_as_of_points(
+        self,
+        agent_input: BtRunAgentInput,
+        as_of_resolution: AsOfResolution,
+    ) -> tuple[str | None, ...]:
+        count = max(int(agent_input.compare_point_count or 1), 1)
+        bt_as_ofs = self._load_bt_as_ofs_from_current_run()
+
+        if bt_as_ofs:
+            return tuple(bt_as_ofs[-count:])
+
+        if as_of_resolution.runner_as_of_override is not None:
+            return (as_of_resolution.runner_as_of_override,)
+        if as_of_resolution.runner_as_of is not None:
+            return (None,)
+        if as_of_resolution.backtest_as_of is not None:
+            return (as_of_resolution.backtest_as_of,)
+        return (None,)
+
+    def _load_bt_as_ofs_from_current_run(self) -> list[str]:
+        if self._decisions_dir is None or not self._decisions_dir.exists():
+            return []
+
+        as_ofs: set[str] = set()
+        for path in self._decisions_dir.glob("BT_*.json"):
+            try:
+                with path.open("r", encoding="utf-8") as file_obj:
+                    payload = json.load(file_obj)
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            as_of = payload.get("as_of")
+            if isinstance(as_of, str) and as_of.strip():
+                as_ofs.add(as_of.strip())
+
+        return sorted(as_ofs)
 
     @classmethod
     def _compare_configured_universes(cls, agent_input: BtRunAgentInput) -> str | None:
@@ -482,8 +547,28 @@ class BtRunAgent:
         )
         return CompareResult(
             success=response.success,
-            matched=response.mismatched_count == 0,
-            message=f"{response.matched_count} matched, {response.mismatched_count} mismatched",
+            matched=response.success and response.matched_count > 0 and response.mismatched_count == 0,
+            message=response.message or f"{response.matched_count} matched, {response.mismatched_count} mismatched",
+        )
+
+    @staticmethod
+    def _combined_runner_step_result(process_results) -> StepResult:
+        if not process_results:
+            return StepResult(success=False, message="Runner not executed")
+
+        last = process_results[-1]
+        stdout = "\n".join(result.stdout for result in process_results if result.stdout)
+        stderr = "\n".join(result.stderr for result in process_results if result.stderr)
+        return StepResult(
+            success=True,
+            command=last.command,
+            cwd=last.cwd,
+            returncode=last.returncode,
+            duration_seconds=sum(float(result.duration_seconds or 0.0) for result in process_results),
+            timed_out=any(result.timed_out for result in process_results),
+            stdout=stdout,
+            stderr=stderr,
+            message=f"Runner executed {len(process_results)} compare point(s)",
         )
 
     @staticmethod
