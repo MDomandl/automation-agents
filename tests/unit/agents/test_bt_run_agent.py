@@ -603,6 +603,7 @@ def test_bt_run_agent_seed_replaces_duplicate_runner_snapshot_rows(tmp_path: Pat
             [
                 "as_of,ticker,allocation_pct",
                 "2025-09-30,AVGO,99.99",
+                "2025-09-30,STALE,99.99",
                 "2025-10-08,GLW,11.11",
             ]
         )
@@ -619,6 +620,7 @@ def test_bt_run_agent_seed_replaces_duplicate_runner_snapshot_rows(tmp_path: Pat
     persisted = runner_positions_path.read_text(encoding="utf-8")
     assert persisted.count("2025-09-30,AVGO") == 1
     assert "2025-09-30,AVGO,11.11" in persisted
+    assert "2025-09-30,STALE" not in persisted
     assert "2025-10-08,GLW,11.11" in persisted
 
 

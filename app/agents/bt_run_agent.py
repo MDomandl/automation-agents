@@ -412,6 +412,7 @@ class BtRunAgent:
 
         previous_as_of = previous_rows[0]["as_of"]
         existing_rows = cls._read_csv_rows(runner_positions_path) if runner_positions_path.exists() else []
+        existing_rows = [row for row in existing_rows if row.get("as_of") != previous_as_of]
         combined_rows = cls._dedupe_position_rows(existing_rows + previous_rows)
         fieldnames = cls._merged_fieldnames(existing_rows + previous_rows)
 
