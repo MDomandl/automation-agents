@@ -63,6 +63,8 @@ class RunnerPreviousSeedResult:
 
 @dataclass(frozen=True, slots=True)
 class UniverseFingerprint:
+    name: str
+    file: str
     count: int
     digest: str
 
@@ -273,7 +275,10 @@ class BtRunAgent:
         try:
             bt_config = cls._load_toml(agent_input.backtest_input.config_path)
             runner_config = cls._load_toml(agent_input.runner_input.config_path)
-            if "tickers_file" not in bt_config or "tickers_file" not in runner_config:
+            if (
+                cls._config_universe_file(bt_config) is None
+                or cls._config_universe_file(runner_config) is None
+            ):
                 return None
 
             bt_universe = cls._load_universe_fingerprint(agent_input.backtest_input)
@@ -284,13 +289,16 @@ class BtRunAgent:
         if bt_universe == runner_universe:
             return (
                 "[INFO] Universe match: "
-                f"count={bt_universe.count}, hash={bt_universe.digest}"
+                f"count={bt_universe.count}, hash={bt_universe.digest}, "
+                f"name={bt_universe.name}, file={bt_universe.file}"
             )
 
         return (
             "[WARN] Universe drift detected: "
-            f"BT count={bt_universe.count}, hash={bt_universe.digest}; "
-            f"RUN count={runner_universe.count}, hash={runner_universe.digest}"
+            f"BT count={bt_universe.count}, hash={bt_universe.digest}, "
+            f"name={bt_universe.name}, file={bt_universe.file}; "
+            f"RUN count={runner_universe.count}, hash={runner_universe.digest}, "
+            f"name={runner_universe.name}, file={runner_universe.file}"
         )
 
     @classmethod
@@ -299,23 +307,38 @@ class BtRunAgent:
         tool_input: RunBacktestToolInput | RunRunnerToolInput,
     ) -> UniverseFingerprint:
         config = cls._load_toml(tool_input.config_path)
+        tickers_file = cls._config_universe_file(config)
+        if tickers_file is None:
+            raise ValueError("Config enthält keine universe.tickers_file/tickers_file")
         tickers_path = cls._resolve_path(
-            config.get("tickers_file", "aktien_oop/sp500_tickers.txt"),
+            tickers_file,
             base_cwd=tool_input.cwd,
             config_path=tool_input.config_path,
         )
-        tickers = cls._read_tickers(tickers_path)
+        tickers = cls.load_tickers(str(tickers_path))
         digest = hashlib.sha1(",".join(sorted(tickers)).encode("utf-8")).hexdigest()
-        return UniverseFingerprint(count=len(tickers), digest=digest)
+        return UniverseFingerprint(
+            name=str((config.get("universe") or {}).get("name", "")),
+            file=str(tickers_path),
+            count=len(tickers),
+            digest=digest,
+        )
 
     @staticmethod
-    def _read_tickers(path: Path) -> list[str]:
+    def load_tickers(path: str) -> list[str]:
         tickers: list[str] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
             ticker = line.strip()
             if ticker and not ticker.startswith("#"):
                 tickers.append(ticker)
         return tickers
+
+    @staticmethod
+    def _config_universe_file(config: dict) -> object | None:
+        universe = config.get("universe")
+        if isinstance(universe, dict) and universe.get("tickers_file") is not None:
+            return universe["tickers_file"]
+        return config.get("tickers_file")
 
     def _seed_runner_previous_from_backtest(
         self,
