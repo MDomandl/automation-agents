@@ -19,11 +19,28 @@ UNIVERSE_WARNING_RE = re.compile(
     r"name=(?P<name>[^,]+),\s+file=(?P<file>.+)$"
 )
 TOTAL_RETURN_RE = re.compile(r"(?:Portfolio Total Ret|Total Return):\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+CAGR_RE = re.compile(r"(?:Port CAGR|(?<!BM )CAGR):\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
 VOL_RE = re.compile(r"^\s*Volatility:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%", re.MULTILINE)
 SHARPE_RE = re.compile(r"Sharpe(?:\(0%\))?:\s*(?P<value>[-+]?\d+(?:\.\d+)?)")
+SORTINO_RE = re.compile(r"Sortino(?:\(0%\))?:\s*(?P<value>[-+]?\d+(?:\.\d+)?)")
 MAX_DD_RE = re.compile(r"Max DD:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
 TURNOVER_RE = re.compile(r"Avg Turnover:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+ALPHA_RE = re.compile(r"Alpha \(ann\.\):\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
 OUTPUT_PATH_RE = re.compile(r"^(?P<label>Equity|Positions|Trades|Summary):\s*(?P<path>.+?)\s*$", re.MULTILINE)
+
+PERCENT_POINT_METRICS = {
+    "total_return_pct",
+    "max_drawdown_pct",
+    "volatility_pct",
+    "turnover_pct",
+    "cagr_pct",
+    "alpha_pct",
+}
+NUMERIC_PERFORMANCE_METRICS = {
+    "final_equity",
+    "sharpe_ratio",
+    "sortino_ratio",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,9 +55,12 @@ class UniverseInfo:
 class PerformanceInfo:
     final_equity: float | None = None
     total_return_pct: float | None = None
+    cagr_pct: float | None = None
     max_drawdown_pct: float | None = None
     volatility_pct: float | None = None
     sharpe_ratio: float | None = None
+    sortino_ratio: float | None = None
+    alpha_pct: float | None = None
     turnover_pct: float | None = None
 
 
@@ -96,14 +116,24 @@ def compare_runs(
 
     tickers_a = set((snapshot_a.behavior.last_portfolio or {}).keys())
     tickers_b = set((snapshot_b.behavior.last_portfolio or {}).keys())
+    common_tickers = sorted(tickers_a & tickers_b)
+    overlap_denominator = max(len(tickers_a), len(tickers_b))
+    overlap_pct = (
+        len(common_tickers) / overlap_denominator * 100.0
+        if overlap_denominator > 0
+        else None
+    )
 
     return {
         "run_a": _snapshot_to_dict(snapshot_a),
         "run_b": _snapshot_to_dict(snapshot_b),
         "last_decision_tickers": {
-            "common": sorted(tickers_a & tickers_b),
+            "common": common_tickers,
             "only_in_a": sorted(tickers_a - tickers_b),
             "only_in_b": sorted(tickers_b - tickers_a),
+            "overlap_count": len(common_tickers) if overlap_denominator > 0 else None,
+            "overlap_denominator": overlap_denominator if overlap_denominator > 0 else None,
+            "overlap_pct": overlap_pct,
         },
     }
 
@@ -303,9 +333,12 @@ def extract_performance(text_blob: str, referenced_paths: dict[str, Path]) -> Pe
     return PerformanceInfo(
         final_equity=final_equity,
         total_return_pct=_last_percent(TOTAL_RETURN_RE, text_blob),
+        cagr_pct=_last_percent(CAGR_RE, text_blob),
         max_drawdown_pct=_last_percent(MAX_DD_RE, text_blob),
         volatility_pct=_last_percent(VOL_RE, text_blob),
         sharpe_ratio=_last_portfolio_sharpe(text_blob),
+        sortino_ratio=_last_float(SORTINO_RE, text_blob),
+        alpha_pct=_last_percent(ALPHA_RE, text_blob),
         turnover_pct=_last_percent(TURNOVER_RE, text_blob),
     )
 
@@ -414,6 +447,191 @@ def read_last_numeric_csv_value(path: Path | None) -> float | None:
     return None
 
 
+def calc_delta(a: object, b: object) -> float | None:
+    left = _to_float(a)
+    right = _to_float(b)
+    if left is None or right is None:
+        return None
+    return right - left
+
+
+def winner_higher_is_better(a: object, b: object) -> str:
+    left = _to_float(a)
+    right = _to_float(b)
+    if left is None or right is None:
+        return "n/a"
+    if right > left:
+        return "B"
+    if left > right:
+        return "A"
+    return "tie"
+
+
+def winner_lower_is_better(a: object, b: object) -> str:
+    left = _to_float(a)
+    right = _to_float(b)
+    if left is None or right is None:
+        return "n/a"
+    if right < left:
+        return "B"
+    if left < right:
+        return "A"
+    return "tie"
+
+
+def winner_drawdown(a: object, b: object) -> str:
+    left = _to_float(a)
+    right = _to_float(b)
+    if left is None or right is None:
+        return "n/a"
+    left_abs = abs(left)
+    right_abs = abs(right)
+    if right_abs < left_abs:
+        return "B"
+    if left_abs < right_abs:
+        return "A"
+    return "tie"
+
+
+def format_delta(
+    a: object,
+    b: object,
+    *,
+    metric: str | None = None,
+    percent_points: bool | None = None,
+) -> str:
+    delta = calc_delta(a, b)
+    if delta is None:
+        return "n/a"
+    sign = "+" if delta > 0 else ""
+    if percent_points is None:
+        percent_points = metric in PERCENT_POINT_METRICS
+    if percent_points:
+        return f"{sign}{delta:.2f}pp"
+    return f"{sign}{delta:.4f}"
+
+
+def build_performance_verdict(comparison: dict[str, Any]) -> list[tuple[str, str]]:
+    run_a = comparison["run_a"]
+    run_b = comparison["run_b"]
+    perf_a = run_a["performance"]
+    perf_b = run_b["performance"]
+    behavior_a = run_a["behavior"]
+    behavior_b = run_b["behavior"]
+
+    verdicts = [
+        ("return", winner_higher_is_better(perf_a.get("total_return_pct"), perf_b.get("total_return_pct"))),
+        ("max_drawdown", winner_drawdown(perf_a.get("max_drawdown_pct"), perf_b.get("max_drawdown_pct"))),
+        ("volatility", winner_lower_is_better(perf_a.get("volatility_pct"), perf_b.get("volatility_pct"))),
+        ("sharpe", winner_higher_is_better(perf_a.get("sharpe_ratio"), perf_b.get("sharpe_ratio"))),
+        ("turnover", winner_lower_is_better(perf_a.get("turnover_pct"), perf_b.get("turnover_pct"))),
+        ("trades_count", winner_lower_is_better(behavior_a.get("trades_count"), behavior_b.get("trades_count"))),
+    ]
+
+    if perf_a.get("sortino_ratio") is not None or perf_b.get("sortino_ratio") is not None:
+        verdicts.append(
+            ("sortino", winner_higher_is_better(perf_a.get("sortino_ratio"), perf_b.get("sortino_ratio")))
+        )
+    if perf_a.get("cagr_pct") is not None or perf_b.get("cagr_pct") is not None:
+        verdicts.append(("cagr", winner_higher_is_better(perf_a.get("cagr_pct"), perf_b.get("cagr_pct"))))
+    if perf_a.get("alpha_pct") is not None or perf_b.get("alpha_pct") is not None:
+        verdicts.append(("alpha", winner_higher_is_better(perf_a.get("alpha_pct"), perf_b.get("alpha_pct"))))
+
+    return verdicts
+
+
+def build_interpretation(comparison: dict[str, Any]) -> list[str]:
+    run_a = comparison["run_a"]
+    run_b = comparison["run_b"]
+    universe_a = run_a["universe"]
+    universe_b = run_b["universe"]
+    perf_a = run_a["performance"]
+    perf_b = run_b["performance"]
+    behavior_a = run_a["behavior"]
+    behavior_b = run_b["behavior"]
+
+    lines = []
+
+    if (
+        universe_a.get("universe_name") != universe_b.get("universe_name")
+        or universe_a.get("universe_hash") != universe_b.get("universe_hash")
+    ):
+        lines.append("Different universe detected: portfolio differences are expected.")
+
+    if universe_a.get("universe_len") != universe_b.get("universe_len"):
+        lines.append(
+            f"Universe size differs: A={_display(universe_a.get('universe_len'))}, "
+            f"B={_display(universe_b.get('universe_len'))}."
+        )
+
+    return_winner = winner_higher_is_better(
+        perf_a.get("total_return_pct"),
+        perf_b.get("total_return_pct"),
+    )
+    if return_winner != "n/a":
+        lines.append(f"Return winner: {return_winner}.")
+
+    risk_winner = _risk_winner(
+        perf_a.get("max_drawdown_pct"),
+        perf_b.get("max_drawdown_pct"),
+        perf_a.get("volatility_pct"),
+        perf_b.get("volatility_pct"),
+    )
+    if risk_winner != "n/a":
+        lines.append(f"Risk winner: {risk_winner}.")
+
+    trading_winner = _trading_activity_lower(
+        perf_a.get("turnover_pct"),
+        perf_b.get("turnover_pct"),
+        behavior_a.get("trades_count"),
+        behavior_b.get("trades_count"),
+    )
+    if trading_winner in {"A", "B"}:
+        lines.append(f"Trading activity is lower in {trading_winner}.")
+    elif trading_winner == "mixed":
+        lines.append("Trading activity is mixed.")
+
+    return lines or ["No interpretation available from the current artifacts."]
+
+
+def _risk_winner(
+    drawdown_a: object,
+    drawdown_b: object,
+    volatility_a: object,
+    volatility_b: object,
+) -> str:
+    drawdown_winner = winner_drawdown(drawdown_a, drawdown_b)
+    volatility_winner = winner_lower_is_better(volatility_a, volatility_b)
+    if drawdown_winner == "n/a" or volatility_winner == "n/a":
+        return "n/a"
+    if drawdown_winner == volatility_winner:
+        return drawdown_winner
+    return "mixed"
+
+
+def _trading_activity_lower(
+    turnover_a: object,
+    turnover_b: object,
+    trades_a: object,
+    trades_b: object,
+) -> str:
+    lower: list[str] = []
+    turnover_delta = calc_delta(turnover_a, turnover_b)
+    if turnover_delta is not None and abs(turnover_delta) >= 5.0:
+        lower.append("B" if turnover_delta < 0 else "A")
+
+    trades_delta = calc_delta(trades_a, trades_b)
+    if trades_delta is not None and abs(trades_delta) >= 3.0:
+        lower.append("B" if trades_delta < 0 else "A")
+
+    if not lower:
+        return "n/a"
+    unique = set(lower)
+    if len(unique) == 1:
+        return lower[0]
+    return "mixed"
+
+
 def build_console_report(comparison: dict[str, Any]) -> str:
     run_a = comparison["run_a"]
     run_b = comparison["run_b"]
@@ -429,12 +647,16 @@ def build_console_report(comparison: dict[str, Any]) -> str:
         _row("universe_hash", run_a["universe"]["universe_hash"], run_b["universe"]["universe_hash"]),
         "",
         "Performance",
-        _row("final_equity", _fmt_num(run_a["performance"]["final_equity"]), _fmt_num(run_b["performance"]["final_equity"])),
-        _row("total_return_pct", _fmt_pct(run_a["performance"]["total_return_pct"]), _fmt_pct(run_b["performance"]["total_return_pct"])),
-        _row("max_drawdown_pct", _fmt_pct(run_a["performance"]["max_drawdown_pct"]), _fmt_pct(run_b["performance"]["max_drawdown_pct"])),
-        _row("volatility_pct", _fmt_pct(run_a["performance"]["volatility_pct"]), _fmt_pct(run_b["performance"]["volatility_pct"])),
-        _row("sharpe_ratio", _fmt_num(run_a["performance"]["sharpe_ratio"]), _fmt_num(run_b["performance"]["sharpe_ratio"])),
-        _row("turnover_pct", _fmt_pct(run_a["performance"]["turnover_pct"]), _fmt_pct(run_b["performance"]["turnover_pct"])),
+        _performance_row("final_equity", run_a, run_b),
+        _performance_row("total_return_pct", run_a, run_b),
+        _performance_row("max_drawdown_pct", run_a, run_b),
+        _performance_row("volatility_pct", run_a, run_b),
+        _performance_row("sharpe_ratio", run_a, run_b),
+        _performance_row("turnover_pct", run_a, run_b),
+        *_optional_performance_rows(run_a, run_b),
+        "",
+        "Performance / Trading Verdict",
+        *(_verdict_row(label, winner) for label, winner in build_performance_verdict(comparison)),
         "",
         "Trading / Portfolio",
         _row("trades_count", run_a["behavior"]["trades_count"], run_b["behavior"]["trades_count"]),
@@ -443,9 +665,14 @@ def build_console_report(comparison: dict[str, Any]) -> str:
         _row("last_position_count", len(run_a["behavior"]["last_portfolio"] or {}), len(run_b["behavior"]["last_portfolio"] or {})),
         "",
         "Last Decision Tickers",
+        _overlap_count_row(comparison),
+        _overlap_pct_row(comparison),
         f"common ({len(comparison['last_decision_tickers']['common'])}): {_join(comparison['last_decision_tickers']['common'])}",
         f"only in A ({len(comparison['last_decision_tickers']['only_in_a'])}): {_join(comparison['last_decision_tickers']['only_in_a'])}",
         f"only in B ({len(comparison['last_decision_tickers']['only_in_b'])}): {_join(comparison['last_decision_tickers']['only_in_b'])}",
+        "",
+        "Interpretation",
+        *(f"- {line}" for line in build_interpretation(comparison)),
     ]
     return "\n".join(lines)
 
@@ -472,15 +699,14 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
         "",
         "## Performance",
         _md_table(
-            ("Metric", "A", "B"),
-            (
-                ("final_equity", _fmt_num(run_a["performance"]["final_equity"]), _fmt_num(run_b["performance"]["final_equity"])),
-                ("total_return_pct", _fmt_pct(run_a["performance"]["total_return_pct"]), _fmt_pct(run_b["performance"]["total_return_pct"])),
-                ("max_drawdown_pct", _fmt_pct(run_a["performance"]["max_drawdown_pct"]), _fmt_pct(run_b["performance"]["max_drawdown_pct"])),
-                ("volatility_pct", _fmt_pct(run_a["performance"]["volatility_pct"]), _fmt_pct(run_b["performance"]["volatility_pct"])),
-                ("sharpe_ratio", _fmt_num(run_a["performance"]["sharpe_ratio"]), _fmt_num(run_b["performance"]["sharpe_ratio"])),
-                ("turnover_pct", _fmt_pct(run_a["performance"]["turnover_pct"]), _fmt_pct(run_b["performance"]["turnover_pct"])),
-            ),
+            ("Metric", "A", "B", "Delta"),
+            tuple(_performance_table_rows(run_a, run_b)),
+        ),
+        "",
+        "## Performance / Trading Verdict",
+        _md_table(
+            ("Metric", "Winner"),
+            tuple(build_performance_verdict(comparison)),
         ),
         "",
         "## Trading / Portfolio",
@@ -495,9 +721,14 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
         ),
         "",
         "## Last Decision Tickers",
+        f"- overlap_count: {_overlap_count_value(comparison)}",
+        f"- overlap_pct: {_overlap_pct_value(comparison)}",
         f"- common ({len(comparison['last_decision_tickers']['common'])}): {_join(comparison['last_decision_tickers']['common'])}",
         f"- only in A ({len(comparison['last_decision_tickers']['only_in_a'])}): {_join(comparison['last_decision_tickers']['only_in_a'])}",
         f"- only in B ({len(comparison['last_decision_tickers']['only_in_b'])}): {_join(comparison['last_decision_tickers']['only_in_b'])}",
+        "",
+        "## Interpretation",
+        *(f"- {line}" for line in build_interpretation(comparison)),
         "",
     ]
     return "\n".join(lines)
@@ -625,9 +856,12 @@ def _snapshot_to_dict(snapshot: RunSnapshot) -> dict[str, Any]:
         "performance": {
             "final_equity": snapshot.performance.final_equity,
             "total_return_pct": snapshot.performance.total_return_pct,
+            "cagr_pct": snapshot.performance.cagr_pct,
             "max_drawdown_pct": snapshot.performance.max_drawdown_pct,
             "volatility_pct": snapshot.performance.volatility_pct,
             "sharpe_ratio": snapshot.performance.sharpe_ratio,
+            "sortino_ratio": snapshot.performance.sortino_ratio,
+            "alpha_pct": snapshot.performance.alpha_pct,
             "turnover_pct": snapshot.performance.turnover_pct,
         },
         "behavior": {
@@ -643,6 +877,80 @@ def _snapshot_to_dict(snapshot: RunSnapshot) -> dict[str, Any]:
 
 def _row(label: str, left: object, right: object) -> str:
     return f"{label:<20} A={_display(left):<32} B={_display(right)}"
+
+
+def _performance_row(metric: str, run_a: dict[str, Any], run_b: dict[str, Any]) -> str:
+    left_raw = run_a["performance"].get(metric)
+    right_raw = run_b["performance"].get(metric)
+    left = _format_performance_value(metric, left_raw)
+    right = _format_performance_value(metric, right_raw)
+    delta = format_delta(metric=metric, a=left_raw, b=right_raw)
+    return f"{metric:<20} A={_display(left):<12} B={_display(right):<12} Delta={delta}"
+
+
+def _optional_performance_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[str]:
+    rows = []
+    for metric in ("cagr_pct", "sortino_ratio", "alpha_pct"):
+        if run_a["performance"].get(metric) is not None or run_b["performance"].get(metric) is not None:
+            rows.append(_performance_row(metric, run_a, run_b))
+    return rows
+
+
+def _performance_table_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[tuple[str, str | None, str | None, str]]:
+    metrics = [
+        "final_equity",
+        "total_return_pct",
+        "max_drawdown_pct",
+        "volatility_pct",
+        "sharpe_ratio",
+        "turnover_pct",
+    ]
+    metrics.extend(
+        metric
+        for metric in ("cagr_pct", "sortino_ratio", "alpha_pct")
+        if run_a["performance"].get(metric) is not None or run_b["performance"].get(metric) is not None
+    )
+    return [
+        (
+            metric,
+            _format_performance_value(metric, run_a["performance"].get(metric)),
+            _format_performance_value(metric, run_b["performance"].get(metric)),
+            format_delta(metric=metric, a=run_a["performance"].get(metric), b=run_b["performance"].get(metric)),
+        )
+        for metric in metrics
+    ]
+
+
+def _format_performance_value(metric: str, value: object) -> str | None:
+    if metric in PERCENT_POINT_METRICS:
+        return _fmt_pct(value)
+    return _fmt_num(value)
+
+
+def _verdict_row(label: str, winner: str) -> str:
+    return f"{label:<20} {winner}"
+
+
+def _overlap_count_row(comparison: dict[str, Any]) -> str:
+    return f"{'overlap_count':<20} {_overlap_count_value(comparison)}"
+
+
+def _overlap_pct_row(comparison: dict[str, Any]) -> str:
+    return f"{'overlap_pct':<20} {_overlap_pct_value(comparison)}"
+
+
+def _overlap_count_value(comparison: dict[str, Any]) -> str:
+    tickers = comparison["last_decision_tickers"]
+    count = tickers.get("overlap_count")
+    denominator = tickers.get("overlap_denominator")
+    if count is None or denominator is None:
+        return "n/a"
+    return f"{count} / {denominator}"
+
+
+def _overlap_pct_value(comparison: dict[str, Any]) -> str:
+    value = comparison["last_decision_tickers"].get("overlap_pct")
+    return _fmt_pct(value) or "n/a"
 
 
 def _display(value: object) -> str:

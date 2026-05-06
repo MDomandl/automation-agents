@@ -1,7 +1,15 @@
 import json
 from pathlib import Path
 
-from scripts.compare_runs import build_console_report, compare_runs
+from scripts.compare_runs import (
+    build_console_report,
+    calc_delta,
+    compare_runs,
+    format_delta,
+    winner_drawdown,
+    winner_higher_is_better,
+    winner_lower_is_better,
+)
 
 
 def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: Path) -> None:
@@ -66,6 +74,9 @@ def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: 
     assert comparison["last_decision_tickers"]["common"] == ["AAPL"]
     assert comparison["last_decision_tickers"]["only_in_a"] == ["NVDA"]
     assert comparison["last_decision_tickers"]["only_in_b"] == ["AVGO"]
+    assert comparison["last_decision_tickers"]["overlap_count"] == 1
+    assert comparison["last_decision_tickers"]["overlap_denominator"] == 2
+    assert comparison["last_decision_tickers"]["overlap_pct"] == 50.0
 
 
 def test_console_report_is_human_readable(tmp_path: Path) -> None:
@@ -115,8 +126,28 @@ def test_console_report_is_human_readable(tmp_path: Path) -> None:
 
     assert "Config / Universe" in report
     assert "Performance" in report
+    assert "Delta=-2.00pp" in report
+    assert "Performance / Trading Verdict" in report
+    assert "return" in report
+    assert "Return winner: A." in report
     assert "Trading / Portfolio" in report
+    assert "overlap_count        0 / 1" in report
+    assert "overlap_pct          0.00%" in report
     assert "only in A (1): AAPL" in report
+    assert "Interpretation" in report
+    assert "Different universe detected: portfolio differences are expected." in report
+
+
+def test_delta_and_winner_helpers() -> None:
+    assert calc_delta(20.34, 20.66) == 0.3200000000000003
+    assert format_delta(20.34, 20.66, percent_points=True) == "+0.32pp"
+    assert format_delta(0.64, 0.83, percent_points=False) == "+0.1900"
+    assert format_delta(None, 0.83, percent_points=False) == "n/a"
+
+    assert winner_higher_is_better(20.34, 20.66) == "B"
+    assert winner_lower_is_better(48.83, 34.21) == "B"
+    assert winner_drawdown(-24.45, -16.04) == "B"
+    assert winner_drawdown(-16.04, -16.04) == "tie"
 
 
 def _write_run(
