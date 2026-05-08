@@ -23,10 +23,18 @@ CAGR_RE = re.compile(r"(?:Port CAGR|(?<!BM )CAGR):\s*(?P<value>[-+]?\d+(?:\.\d+)
 VOL_RE = re.compile(r"^\s*Volatility:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%", re.MULTILINE)
 SHARPE_RE = re.compile(r"Sharpe(?:\(0%\))?:\s*(?P<value>[-+]?\d+(?:\.\d+)?)")
 SORTINO_RE = re.compile(r"Sortino(?:\(0%\))?:\s*(?P<value>[-+]?\d+(?:\.\d+)?)")
-MAX_DD_RE = re.compile(r"Max DD:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+MAX_DD_RE = re.compile(r"^\s*Max DD:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%", re.MULTILINE)
 TURNOVER_RE = re.compile(r"Avg Turnover:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
 ALPHA_RE = re.compile(r"Alpha \(ann\.\):\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
-OUTPUT_PATH_RE = re.compile(r"^(?P<label>Equity|Positions|Trades|Summary):\s*(?P<path>.+?)\s*$", re.MULTILINE)
+BENCHMARK_NAME_RE = re.compile(r"^Benchmark:\s*(?P<value>\S+)", re.MULTILINE)
+BENCHMARK_RETURN_RE = re.compile(r"BM Total Ret:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+BENCHMARK_CAGR_RE = re.compile(r"BM CAGR:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+BENCHMARK_MAX_DD_RE = re.compile(
+    r"(?:BM|Benchmark) Max DD:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%"
+)
+BENCHMARK_VOL_RE = re.compile(r"BM Volatility:\s*(?P<value>[-+]?\d+(?:\.\d+)?)%")
+BENCHMARK_SHARPE_RE = re.compile(r"BM Sharpe(?:\(0%\))?:\s*(?P<value>[-+]?\d+(?:\.\d+)?)")
+OUTPUT_PATH_RE = re.compile(r"^(?P<label>Equity|Positions|Trades|Bench|Summary):\s*(?P<path>.+?)\s*$", re.MULTILINE)
 
 PERCENT_POINT_METRICS = {
     "total_return_pct",
@@ -35,6 +43,10 @@ PERCENT_POINT_METRICS = {
     "turnover_pct",
     "cagr_pct",
     "alpha_pct",
+    "benchmark_return_pct",
+    "benchmark_cagr_pct",
+    "benchmark_max_drawdown_pct",
+    "benchmark_volatility_pct",
 }
 NUMERIC_PERFORMANCE_METRICS = {
     "final_equity",
@@ -65,6 +77,16 @@ class PerformanceInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkInfo:
+    benchmark_name: str | None = None
+    benchmark_return_pct: float | None = None
+    benchmark_cagr_pct: float | None = None
+    benchmark_max_drawdown_pct: float | None = None
+    benchmark_volatility_pct: float | None = None
+    benchmark_sharpe_ratio: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class BehaviorInfo:
     trades_count: int | None = None
     trades_count_source: str | None = None
@@ -80,6 +102,7 @@ class RunSnapshot:
     decisions_dir: Path | None
     universe: UniverseInfo
     performance: PerformanceInfo
+    benchmark: BenchmarkInfo
     behavior: BehaviorInfo
     sources: dict[str, str]
 
@@ -156,6 +179,7 @@ def load_run_snapshot(
 
     universe = extract_universe(manifest, decision_payloads, text_blob)
     performance = extract_performance(text_blob, referenced_paths)
+    benchmark = extract_benchmark(text_blob, referenced_paths)
     behavior = extract_behavior(decision_payloads, referenced_paths)
 
     sources = {}
@@ -172,6 +196,7 @@ def load_run_snapshot(
         decisions_dir=decisions_dir,
         universe=universe,
         performance=performance,
+        benchmark=benchmark,
         behavior=behavior,
         sources=sources,
     )
@@ -266,7 +291,11 @@ def resolve_referenced_output_paths(
                 for candidate in candidates
                 if candidate.exists()
                 and candidate.is_file()
-                and (output_dir is None or _is_relative_to(candidate, output_dir))
+                and (
+                    label == "bench"
+                    or output_dir is None
+                    or _is_relative_to(candidate, output_dir)
+                )
             ),
             None,
         )
@@ -278,6 +307,7 @@ def resolve_referenced_output_paths(
             "equity": ("*equity*.csv",),
             "positions": ("*positions*.csv",),
             "trades": ("*trades*.csv",),
+            "bench": ("*benchmark*.csv",),
             "summary": ("*summary*.txt",),
         }.items():
             if label not in paths:
@@ -340,6 +370,29 @@ def extract_performance(text_blob: str, referenced_paths: dict[str, Path]) -> Pe
         sortino_ratio=_last_float(SORTINO_RE, text_blob),
         alpha_pct=_last_percent(ALPHA_RE, text_blob),
         turnover_pct=_last_percent(TURNOVER_RE, text_blob),
+    )
+
+
+def extract_benchmark(text_blob: str, referenced_paths: dict[str, Path]) -> BenchmarkInfo:
+    summary_path = referenced_paths.get("summary")
+    if summary_path is not None and "automation_runs" in summary_path.parts:
+        text_blob = text_blob + "\n" + summary_path.read_text(encoding="utf-8", errors="replace")
+
+    benchmark_name = _last_string(BENCHMARK_NAME_RE, text_blob)
+    benchmark_max_drawdown_pct = read_benchmark_max_drawdown_pct(
+        referenced_paths.get("bench"),
+        benchmark_name=benchmark_name,
+    )
+    if benchmark_max_drawdown_pct is None:
+        benchmark_max_drawdown_pct = _last_percent(BENCHMARK_MAX_DD_RE, text_blob)
+
+    return BenchmarkInfo(
+        benchmark_name=benchmark_name,
+        benchmark_return_pct=_last_percent(BENCHMARK_RETURN_RE, text_blob),
+        benchmark_cagr_pct=_last_percent(BENCHMARK_CAGR_RE, text_blob),
+        benchmark_max_drawdown_pct=benchmark_max_drawdown_pct,
+        benchmark_volatility_pct=_last_percent(BENCHMARK_VOL_RE, text_blob),
+        benchmark_sharpe_ratio=_last_float(BENCHMARK_SHARPE_RE, text_blob),
     )
 
 
@@ -445,6 +498,77 @@ def read_last_numeric_csv_value(path: Path | None) -> float | None:
             if numeric is not None:
                 return numeric
     return None
+
+
+def read_benchmark_max_drawdown_pct(
+    path: Path | None,
+    *,
+    benchmark_name: str | None = None,
+) -> float | None:
+    if path is None or not path.exists():
+        return None
+
+    try:
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            reader = csv.DictReader(
+                line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
+            )
+            rows = list(reader)
+            fieldnames = tuple(reader.fieldnames or ())
+    except OSError:
+        return None
+
+    benchmark_column = _select_benchmark_column(fieldnames, benchmark_name=benchmark_name)
+    if benchmark_column is None:
+        return None
+
+    values = [
+        value
+        for value in (_to_float(row.get(benchmark_column)) for row in rows)
+        if value is not None and value > 0
+    ]
+    if len(values) < 2:
+        return None
+
+    peak = values[0]
+    max_drawdown = 0.0
+    for value in values:
+        peak = max(peak, value)
+        drawdown = value / peak - 1.0
+        max_drawdown = min(max_drawdown, drawdown)
+
+    return max_drawdown * 100.0
+
+
+def _select_benchmark_column(
+    fieldnames: tuple[str, ...],
+    *,
+    benchmark_name: str | None = None,
+) -> str | None:
+    candidates = [
+        fieldname
+        for fieldname in fieldnames
+        if fieldname.strip().lower() not in {"date", "as_of", "equity"}
+    ]
+    if not candidates:
+        return None
+
+    if benchmark_name:
+        normalized_name = _normalize_column_token(benchmark_name)
+        for fieldname in candidates:
+            if normalized_name and normalized_name in _normalize_column_token(fieldname):
+                return fieldname
+
+    for fieldname in candidates:
+        normalized = fieldname.strip().lower()
+        if normalized.startswith("bm") or "benchmark" in normalized:
+            return fieldname
+
+    return candidates[0]
+
+
+def _normalize_column_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", value.lower())
 
 
 def calc_delta(a: object, b: object) -> float | None:
@@ -655,6 +779,9 @@ def build_console_report(comparison: dict[str, Any]) -> str:
         _performance_row("turnover_pct", run_a, run_b),
         *_optional_performance_rows(run_a, run_b),
         "",
+        _benchmark_title(comparison),
+        *_benchmark_rows(run_a, run_b),
+        "",
         "Performance / Trading Verdict",
         *(_verdict_row(label, winner) for label, winner in build_performance_verdict(comparison)),
         "",
@@ -681,14 +808,20 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
     run_a = comparison["run_a"]
     run_b = comparison["run_b"]
     lines = [
-        "# Run Comparison",
+        "# Run Comparison Report",
         "",
-        f"- A: `{run_a['run_id']}`",
-        f"- B: `{run_b['run_id']}`",
+        "## Runs",
+        _md_table(
+            ("Side", "Run ID"),
+            (
+                ("A", run_a["run_id"]),
+                ("B", run_b["run_id"]),
+            ),
+        ),
         "",
         "## Config / Universe",
         _md_table(
-            ("Field", "A", "B"),
+            ("Metric", "A", "B"),
             (
                 ("universe_name", run_a["universe"]["universe_name"], run_b["universe"]["universe_name"]),
                 ("universe_file", run_a["universe"]["universe_file"], run_b["universe"]["universe_file"]),
@@ -701,6 +834,14 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
         _md_table(
             ("Metric", "A", "B", "Delta"),
             tuple(_performance_table_rows(run_a, run_b)),
+            align_right=(1, 2, 3),
+        ),
+        "",
+        f"## {_benchmark_title(comparison)}",
+        _md_table(
+            ("Metric", "A", "B", "Delta"),
+            tuple(_benchmark_table_rows(run_a, run_b)),
+            align_right=(1, 2, 3),
         ),
         "",
         "## Performance / Trading Verdict",
@@ -721,11 +862,30 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
         ),
         "",
         "## Last Decision Tickers",
-        f"- overlap_count: {_overlap_count_value(comparison)}",
-        f"- overlap_pct: {_overlap_pct_value(comparison)}",
-        f"- common ({len(comparison['last_decision_tickers']['common'])}): {_join(comparison['last_decision_tickers']['common'])}",
-        f"- only in A ({len(comparison['last_decision_tickers']['only_in_a'])}): {_join(comparison['last_decision_tickers']['only_in_a'])}",
-        f"- only in B ({len(comparison['last_decision_tickers']['only_in_b'])}): {_join(comparison['last_decision_tickers']['only_in_b'])}",
+        f"overlap_count: {_overlap_count_value(comparison)}  ",
+        f"overlap_pct: {_overlap_pct_value(comparison)}",
+        "",
+        _md_table(
+            ("Group", "Count", "Tickers"),
+            (
+                (
+                    "Common",
+                    len(comparison["last_decision_tickers"]["common"]),
+                    _join_or_na(comparison["last_decision_tickers"]["common"]),
+                ),
+                (
+                    "Only in A",
+                    len(comparison["last_decision_tickers"]["only_in_a"]),
+                    _join_or_na(comparison["last_decision_tickers"]["only_in_a"]),
+                ),
+                (
+                    "Only in B",
+                    len(comparison["last_decision_tickers"]["only_in_b"]),
+                    _join_or_na(comparison["last_decision_tickers"]["only_in_b"]),
+                ),
+            ),
+            align_right=(1,),
+        ),
         "",
         "## Interpretation",
         *(f"- {line}" for line in build_interpretation(comparison)),
@@ -808,6 +968,13 @@ def _last_float(pattern: re.Pattern[str], text: str) -> float | None:
     return float(matches[-1].group("value"))
 
 
+def _last_string(pattern: re.Pattern[str], text: str) -> str | None:
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return None
+    return matches[-1].group("value").strip()
+
+
 def _last_portfolio_sharpe(text: str) -> float | None:
     values = []
     for line in text.splitlines():
@@ -852,6 +1019,14 @@ def _snapshot_to_dict(snapshot: RunSnapshot) -> dict[str, Any]:
             "universe_file": snapshot.universe.universe_file,
             "universe_len": snapshot.universe.universe_len,
             "universe_hash": snapshot.universe.universe_hash,
+        },
+        "benchmark": {
+            "benchmark_name": snapshot.benchmark.benchmark_name,
+            "benchmark_return_pct": snapshot.benchmark.benchmark_return_pct,
+            "benchmark_cagr_pct": snapshot.benchmark.benchmark_cagr_pct,
+            "benchmark_max_drawdown_pct": snapshot.benchmark.benchmark_max_drawdown_pct,
+            "benchmark_volatility_pct": snapshot.benchmark.benchmark_volatility_pct,
+            "benchmark_sharpe_ratio": snapshot.benchmark.benchmark_sharpe_ratio,
         },
         "performance": {
             "final_equity": snapshot.performance.final_equity,
@@ -921,6 +1096,57 @@ def _performance_table_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> lis
     ]
 
 
+def _benchmark_title(comparison: dict[str, Any]) -> str:
+    run_a = comparison["run_a"]
+    run_b = comparison["run_b"]
+    names = {
+        name
+        for name in (
+            run_a["benchmark"].get("benchmark_name"),
+            run_b["benchmark"].get("benchmark_name"),
+        )
+        if name
+    }
+    if len(names) == 1:
+        return f"Benchmark ({next(iter(names))})"
+    return "Benchmark"
+
+
+def _benchmark_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[str]:
+    return [_benchmark_row(metric, run_a, run_b) for metric in _benchmark_metrics()]
+
+
+def _benchmark_row(metric: str, run_a: dict[str, Any], run_b: dict[str, Any]) -> str:
+    left_raw = run_a["benchmark"].get(metric)
+    right_raw = run_b["benchmark"].get(metric)
+    left = _format_performance_value(metric, left_raw)
+    right = _format_performance_value(metric, right_raw)
+    delta = format_delta(metric=metric, a=left_raw, b=right_raw)
+    return f"{metric:<30} A={_display(left):<12} B={_display(right):<12} Delta={delta}"
+
+
+def _benchmark_table_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[tuple[str, str | None, str | None, str]]:
+    return [
+        (
+            metric,
+            _format_performance_value(metric, run_a["benchmark"].get(metric)),
+            _format_performance_value(metric, run_b["benchmark"].get(metric)),
+            format_delta(metric=metric, a=run_a["benchmark"].get(metric), b=run_b["benchmark"].get(metric)),
+        )
+        for metric in _benchmark_metrics()
+    ]
+
+
+def _benchmark_metrics() -> tuple[str, ...]:
+    return (
+        "benchmark_return_pct",
+        "benchmark_cagr_pct",
+        "benchmark_max_drawdown_pct",
+        "benchmark_volatility_pct",
+        "benchmark_sharpe_ratio",
+    )
+
+
 def _format_performance_value(metric: str, value: object) -> str | None:
     if metric in PERCENT_POINT_METRICS:
         return _fmt_pct(value)
@@ -971,14 +1197,31 @@ def _join(values: list[str]) -> str:
     return ", ".join(values) if values else "-"
 
 
-def _md_table(headers: tuple[str, ...], rows: tuple[tuple[object, ...], ...]) -> str:
+def _md_table(
+    headers: tuple[str, ...],
+    rows: tuple[tuple[object, ...], ...],
+    *,
+    align_right: tuple[int, ...] = (),
+) -> str:
     lines = [
         "| " + " | ".join(headers) + " |",
-        "| " + " | ".join("---" for _ in headers) + " |",
+        "| " + " | ".join("---:" if index in align_right else "---" for index, _ in enumerate(headers)) + " |",
     ]
     for row in rows:
         lines.append("| " + " | ".join(_display(value).replace("|", "\\|") for value in row) + " |")
     return "\n".join(lines)
+
+
+def _join_or_na(values: list[str]) -> str:
+    return ", ".join(values) if values else "n/a"
+
+
+def default_markdown_output_dir() -> Path:
+    return Path("reports") / "run_comparisons"
+
+
+def markdown_report_path(output_dir: str | Path, run_a: str, run_b: str) -> Path:
+    return Path(output_dir) / f"compare_{run_a}_vs_{run_b}.md"
 
 
 def parse_args() -> argparse.Namespace:
@@ -989,6 +1232,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--decisions-root", default=str(default_decisions_root()), help="Root directory with decision run_id folders")
     parser.add_argument("--json-out", help="Optional path to write JSON comparison")
     parser.add_argument("--md-out", help="Optional path to write Markdown comparison")
+    parser.add_argument(
+        "--export-md",
+        action="store_true",
+        help="Write a Markdown report to reports/run_comparisons by default",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=str(default_markdown_output_dir()),
+        help="Directory for --export-md Markdown reports",
+    )
     return parser.parse_args()
 
 
@@ -1011,6 +1264,14 @@ def main() -> None:
         output_path = Path(args.md_out)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(build_markdown_report(comparison), encoding="utf-8")
+
+    if args.export_md:
+        output_path = markdown_report_path(args.output_dir, args.run_a, args.run_b)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(build_markdown_report(comparison), encoding="utf-8")
+        print()
+        print("Markdown report written:")
+        print(output_path.as_posix())
 
 
 if __name__ == "__main__":

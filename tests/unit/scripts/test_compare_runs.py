@@ -1,11 +1,14 @@
 import json
+import math
 from pathlib import Path
 
 from scripts.compare_runs import (
     build_console_report,
+    build_markdown_report,
     calc_delta,
     compare_runs,
     format_delta,
+    markdown_report_path,
     winner_drawdown,
     winner_higher_is_better,
     winner_lower_is_better,
@@ -66,6 +69,16 @@ def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: 
     assert comparison["run_a"]["universe"]["universe_len"] == 503
     assert comparison["run_b"]["universe"]["universe_name"] == "sp500_top100"
     assert comparison["run_b"]["performance"]["total_return_pct"] == 20.6
+    assert comparison["run_b"]["benchmark"]["benchmark_name"] == "SXR8.DE"
+    assert comparison["run_b"]["benchmark"]["benchmark_return_pct"] == 22.85
+    assert comparison["run_b"]["benchmark"]["benchmark_cagr_pct"] == 15.36
+    assert math.isclose(
+        comparison["run_b"]["benchmark"]["benchmark_max_drawdown_pct"],
+        -20.0,
+        abs_tol=1e-12,
+    )
+    assert comparison["run_b"]["benchmark"]["benchmark_volatility_pct"] == 16.9
+    assert comparison["run_b"]["benchmark"]["benchmark_sharpe_ratio"] == 0.93
     assert comparison["run_a"]["performance"]["max_drawdown_pct"] == -12.2
     assert comparison["run_a"]["performance"]["volatility_pct"] == 18.3
     assert comparison["run_a"]["performance"]["sharpe_ratio"] == 1.12
@@ -127,6 +140,9 @@ def test_console_report_is_human_readable(tmp_path: Path) -> None:
     assert "Config / Universe" in report
     assert "Performance" in report
     assert "Delta=-2.00pp" in report
+    assert "Benchmark (SXR8.DE)" in report
+    assert "benchmark_return_pct" in report
+    assert "benchmark_max_drawdown_pct" in report
     assert "Performance / Trading Verdict" in report
     assert "return" in report
     assert "Return winner: A." in report
@@ -148,6 +164,64 @@ def test_delta_and_winner_helpers() -> None:
     assert winner_lower_is_better(48.83, 34.21) == "B"
     assert winner_drawdown(-24.45, -16.04) == "B"
     assert winner_drawdown(-16.04, -16.04) == "tie"
+
+
+def test_markdown_report_uses_report_structure(tmp_path: Path) -> None:
+    runs_root = tmp_path / "automation_runs"
+    decisions_root = tmp_path / "decisions"
+    _write_run(
+        runs_root,
+        decisions_root,
+        run_id="20260505_230805",
+        label="2026-05-05_23-08-05_medium",
+        universe_name="sp500",
+        universe_file="sp500.txt",
+        universe_len=503,
+        universe_hash="hash-a",
+        total_return=20.34,
+        max_dd=-24.45,
+        volatility=25.30,
+        sharpe=0.64,
+        turnover=48.83,
+        portfolios=(("2025-10-08", {"APH": 0.5, "AVGO": 0.5}),),
+    )
+    _write_run(
+        runs_root,
+        decisions_root,
+        run_id="20260505_205318",
+        label="2026-05-05_20-53-18_medium",
+        universe_name="sp500_top100",
+        universe_file="sp500_top100.txt",
+        universe_len=100,
+        universe_hash="hash-b",
+        total_return=20.66,
+        max_dd=-16.04,
+        volatility=17.70,
+        sharpe=0.83,
+        turnover=34.21,
+        portfolios=(("2025-10-08", {"APH": 0.5, "CHRW": 0.5}),),
+    )
+
+    comparison = compare_runs(
+        "20260505_230805",
+        "20260505_205318",
+        runs_root=runs_root,
+        decisions_root=decisions_root,
+    )
+    markdown = build_markdown_report(comparison)
+
+    assert "# Run Comparison Report" in markdown
+    assert "| Side | Run ID |" in markdown
+    assert "| A | 20260505_230805 |" in markdown
+    assert "| total_return_pct | 20.34% | 20.66% | +0.32pp |" in markdown
+    assert "## Benchmark (SXR8.DE)" in markdown
+    assert "| benchmark_return_pct | 22.85% | 22.85% | 0.00pp |" in markdown
+    assert "| benchmark_sharpe_ratio | 0.9300 | 0.9300 | 0.0000 |" in markdown
+    assert "## Performance / Trading Verdict" in markdown
+    assert "overlap_count: 1 / 2" in markdown
+    assert "| Group | Count | Tickers |" in markdown
+    assert "| Common | 1 | APH |" in markdown
+    assert markdown_report_path(tmp_path, "A", "B") == tmp_path / "compare_A_vs_B.md"
 
 
 def _write_run(
@@ -179,7 +253,11 @@ def _write_run(
         f"Volatility:   {volatility:.2f}% |  Sharpe(0%): {sharpe:.2f}\n"
         f"Max DD:       {max_dd:.2f}%   [2024-11-26 -> 2025-03-13]\n"
         f"Avg Turnover: {turnover:.2f}% |  Avg Cost: 0.0005\n"
-        "BM Volatility:  99.99% |  BM Sharpe(0%):  9.99\n"
+        "Benchmark:     SXR8.DE\n"
+        "BM Total Ret:    22.85%   |  BM CAGR:   15.36%\n"
+        "BM Volatility:  16.90% |  BM Sharpe(0%):  0.93\n"
+        "BM2 Volatility:  99.99% |  BM2 Sharpe(0%):  9.99\n"
+        "Bench: benchmark.csv\n"
     )
     manifest = {
         "run_id": run_id,
@@ -190,6 +268,14 @@ def _write_run(
         "runner": {"stdout": "", "stderr": "", "cwd": str(tmp_root(output_dir))},
     }
     (output_dir / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (output_dir / "benchmark.csv").write_text(
+        "# run_id=test\n"
+        "date,equity,BM1_SXR8.DE\n"
+        "2025-01-31,1.00,1.00\n"
+        "2025-02-28,1.10,1.25\n"
+        "2025-03-31,0.90,1.00\n",
+        encoding="utf-8",
+    )
 
     for index, (as_of, weights) in enumerate(portfolios):
         payload = {
