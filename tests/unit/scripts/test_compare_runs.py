@@ -9,6 +9,7 @@ from scripts.compare_runs import (
     compare_runs,
     format_delta,
     markdown_report_path,
+    read_benchmark_relation_metrics,
     winner_drawdown,
     winner_higher_is_better,
     winner_lower_is_better,
@@ -33,6 +34,7 @@ def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: 
         volatility=18.3,
         sharpe=1.12,
         turnover=34.5,
+        equity_values=(1.00, 1.10, 0.90),
         portfolios=(
             ("2025-09-30", {"AAPL": 0.5, "MSFT": 0.5}),
             ("2025-10-08", {"AAPL": 0.5, "NVDA": 0.5}),
@@ -52,6 +54,7 @@ def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: 
         volatility=17.7,
         sharpe=0.83,
         turnover=34.2,
+        equity_values=(1.00, 1.20, 1.05),
         portfolios=(
             ("2025-09-30", {"AAPL": 0.5, "MSFT": 0.5}),
             ("2025-10-08", {"AAPL": 0.5, "AVGO": 0.5}),
@@ -79,6 +82,25 @@ def test_compare_runs_reads_existing_outputs_without_running_anything(tmp_path: 
     )
     assert comparison["run_b"]["benchmark"]["benchmark_volatility_pct"] == 16.9
     assert comparison["run_b"]["benchmark"]["benchmark_sharpe_ratio"] == 0.93
+    assert math.isclose(
+        comparison["run_b"]["benchmark"]["correlation_to_benchmark"],
+        1.0,
+        abs_tol=1e-12,
+    )
+    assert math.isclose(
+        comparison["run_b"]["benchmark"]["up_capture_ratio"],
+        0.8,
+        abs_tol=1e-12,
+    )
+    assert math.isclose(
+        comparison["run_b"]["benchmark"]["down_capture_ratio"],
+        0.625,
+        abs_tol=1e-12,
+    )
+    assert (
+        comparison["run_a"]["benchmark"]["up_capture_ratio"]
+        != comparison["run_b"]["benchmark"]["up_capture_ratio"]
+    )
     assert comparison["run_a"]["performance"]["max_drawdown_pct"] == -12.2
     assert comparison["run_a"]["performance"]["volatility_pct"] == 18.3
     assert comparison["run_a"]["performance"]["sharpe_ratio"] == 1.12
@@ -109,6 +131,7 @@ def test_console_report_is_human_readable(tmp_path: Path) -> None:
         volatility=11.0,
         sharpe=0.9,
         turnover=20.0,
+        equity_values=(1.00, 1.10, 0.90),
         portfolios=(("2025-10-08", {"AAPL": 1.0}),),
     )
     _write_run(
@@ -125,6 +148,7 @@ def test_console_report_is_human_readable(tmp_path: Path) -> None:
         volatility=12.0,
         sharpe=0.7,
         turnover=21.0,
+        equity_values=(1.00, 1.20, 1.05),
         portfolios=(("2025-10-08", {"MSFT": 1.0}),),
     )
 
@@ -143,6 +167,10 @@ def test_console_report_is_human_readable(tmp_path: Path) -> None:
     assert "Benchmark (SXR8.DE)" in report
     assert "benchmark_return_pct" in report
     assert "benchmark_max_drawdown_pct" in report
+    assert "Benchmark Relation" in report
+    assert "correlation_to_benchmark" in report
+    assert "up_capture_ratio" in report
+    assert "down_capture_ratio" in report
     assert "Performance / Trading Verdict" in report
     assert "return" in report
     assert "Return winner: A." in report
@@ -183,6 +211,7 @@ def test_markdown_report_uses_report_structure(tmp_path: Path) -> None:
         volatility=25.30,
         sharpe=0.64,
         turnover=48.83,
+        equity_values=(1.00, 1.10, 0.90),
         portfolios=(("2025-10-08", {"APH": 0.5, "AVGO": 0.5}),),
     )
     _write_run(
@@ -199,6 +228,7 @@ def test_markdown_report_uses_report_structure(tmp_path: Path) -> None:
         volatility=17.70,
         sharpe=0.83,
         turnover=34.21,
+        equity_values=(1.00, 1.20, 1.05),
         portfolios=(("2025-10-08", {"APH": 0.5, "CHRW": 0.5}),),
     )
 
@@ -217,11 +247,54 @@ def test_markdown_report_uses_report_structure(tmp_path: Path) -> None:
     assert "## Benchmark (SXR8.DE)" in markdown
     assert "| benchmark_return_pct | 22.85% | 22.85% | 0.00pp |" in markdown
     assert "| benchmark_sharpe_ratio | 0.9300 | 0.9300 | 0.0000 |" in markdown
+    assert "## Benchmark Relation" in markdown
+    assert "| correlation_to_benchmark | 1.0000 | 1.0000 | 0.0000 |" in markdown
+    assert "| up_capture_ratio | 0.4000 | 0.8000 | +0.4000 |" in markdown
     assert "## Performance / Trading Verdict" in markdown
     assert "overlap_count: 1 / 2" in markdown
     assert "| Group | Count | Tickers |" in markdown
     assert "| Common | 1 | APH |" in markdown
     assert markdown_report_path(tmp_path, "A", "B") == tmp_path / "compare_A_vs_B.md"
+
+
+def test_benchmark_relation_metrics_missing_data_returns_none() -> None:
+    assert read_benchmark_relation_metrics(None, None) == {
+        "correlation_to_benchmark": None,
+        "up_capture_ratio": None,
+        "down_capture_ratio": None,
+    }
+
+
+def test_benchmark_relation_metrics_rejects_mismatched_run_csv(tmp_path: Path) -> None:
+    equity_path = tmp_path / "equity.csv"
+    benchmark_path = tmp_path / "benchmark.csv"
+    equity_path.write_text(
+        "# run_id=20260505_111111\n"
+        "date,equity\n"
+        "2025-01-31,1.00\n"
+        "2025-02-28,1.10\n"
+        "2025-03-31,0.90\n",
+        encoding="utf-8",
+    )
+    benchmark_path.write_text(
+        "# run_id=20260505_111111\n"
+        "date,equity,BM1_SXR8.DE\n"
+        "2025-01-31,1.00,1.00\n"
+        "2025-02-28,1.10,1.25\n"
+        "2025-03-31,0.90,1.00\n",
+        encoding="utf-8",
+    )
+
+    assert read_benchmark_relation_metrics(
+        equity_path,
+        benchmark_path,
+        benchmark_name="SXR8.DE",
+        run_id="20260505_222222",
+    ) == {
+        "correlation_to_benchmark": None,
+        "up_capture_ratio": None,
+        "down_capture_ratio": None,
+    }
 
 
 def _write_run(
@@ -240,6 +313,7 @@ def _write_run(
     sharpe: float,
     turnover: float,
     portfolios: tuple[tuple[str, dict[str, float]], ...],
+    equity_values: tuple[float, float, float] = (1.00, 1.10, 0.90),
 ) -> None:
     output_dir = runs_root / label
     decisions_dir = decisions_root / run_id
@@ -257,6 +331,7 @@ def _write_run(
         "BM Total Ret:    22.85%   |  BM CAGR:   15.36%\n"
         "BM Volatility:  16.90% |  BM Sharpe(0%):  0.93\n"
         "BM2 Volatility:  99.99% |  BM2 Sharpe(0%):  9.99\n"
+        "Equity: equity.csv\n"
         "Bench: benchmark.csv\n"
     )
     manifest = {
@@ -269,11 +344,19 @@ def _write_run(
     }
     (output_dir / "run_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (output_dir / "benchmark.csv").write_text(
-        "# run_id=test\n"
+        f"# run_id={run_id}\n"
         "date,equity,BM1_SXR8.DE\n"
-        "2025-01-31,1.00,1.00\n"
-        "2025-02-28,1.10,1.25\n"
-        "2025-03-31,0.90,1.00\n",
+        f"2025-01-31,{equity_values[0]},1.00\n"
+        f"2025-02-28,{equity_values[1]},1.25\n"
+        f"2025-03-31,{equity_values[2]},1.00\n",
+        encoding="utf-8",
+    )
+    (output_dir / "equity.csv").write_text(
+        f"# run_id={run_id}\n"
+        "date,equity\n"
+        f"2025-01-31,{equity_values[0]}\n"
+        f"2025-02-28,{equity_values[1]}\n"
+        f"2025-03-31,{equity_values[2]}\n",
         encoding="utf-8",
     )
 

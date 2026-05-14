@@ -84,6 +84,9 @@ class BenchmarkInfo:
     benchmark_max_drawdown_pct: float | None = None
     benchmark_volatility_pct: float | None = None
     benchmark_sharpe_ratio: float | None = None
+    correlation_to_benchmark: float | None = None
+    up_capture_ratio: float | None = None
+    down_capture_ratio: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,7 +182,7 @@ def load_run_snapshot(
 
     universe = extract_universe(manifest, decision_payloads, text_blob)
     performance = extract_performance(text_blob, referenced_paths)
-    benchmark = extract_benchmark(text_blob, referenced_paths)
+    benchmark = extract_benchmark(text_blob, referenced_paths, run_id=run_id)
     behavior = extract_behavior(decision_payloads, referenced_paths)
 
     sources = {}
@@ -373,7 +376,12 @@ def extract_performance(text_blob: str, referenced_paths: dict[str, Path]) -> Pe
     )
 
 
-def extract_benchmark(text_blob: str, referenced_paths: dict[str, Path]) -> BenchmarkInfo:
+def extract_benchmark(
+    text_blob: str,
+    referenced_paths: dict[str, Path],
+    *,
+    run_id: str | None = None,
+) -> BenchmarkInfo:
     summary_path = referenced_paths.get("summary")
     if summary_path is not None and "automation_runs" in summary_path.parts:
         text_blob = text_blob + "\n" + summary_path.read_text(encoding="utf-8", errors="replace")
@@ -385,6 +393,12 @@ def extract_benchmark(text_blob: str, referenced_paths: dict[str, Path]) -> Benc
     )
     if benchmark_max_drawdown_pct is None:
         benchmark_max_drawdown_pct = _last_percent(BENCHMARK_MAX_DD_RE, text_blob)
+    relation = read_benchmark_relation_metrics(
+        referenced_paths.get("equity"),
+        referenced_paths.get("bench"),
+        benchmark_name=benchmark_name,
+        run_id=run_id,
+    )
 
     return BenchmarkInfo(
         benchmark_name=benchmark_name,
@@ -393,6 +407,9 @@ def extract_benchmark(text_blob: str, referenced_paths: dict[str, Path]) -> Benc
         benchmark_max_drawdown_pct=benchmark_max_drawdown_pct,
         benchmark_volatility_pct=_last_percent(BENCHMARK_VOL_RE, text_blob),
         benchmark_sharpe_ratio=_last_float(BENCHMARK_SHARPE_RE, text_blob),
+        correlation_to_benchmark=relation["correlation_to_benchmark"],
+        up_capture_ratio=relation["up_capture_ratio"],
+        down_capture_ratio=relation["down_capture_ratio"],
     )
 
 
@@ -540,6 +557,155 @@ def read_benchmark_max_drawdown_pct(
     return max_drawdown * 100.0
 
 
+def read_benchmark_relation_metrics(
+    equity_path: Path | None,
+    benchmark_path: Path | None,
+    *,
+    benchmark_name: str | None = None,
+    run_id: str | None = None,
+) -> dict[str, float | None]:
+    empty = {
+        "correlation_to_benchmark": None,
+        "up_capture_ratio": None,
+        "down_capture_ratio": None,
+    }
+    if not _csv_matches_run_id(benchmark_path, run_id):
+        return empty
+    if equity_path is not None and not _csv_matches_run_id(equity_path, run_id):
+        return empty
+
+    benchmark_rows, benchmark_fieldnames = _read_csv_dicts(benchmark_path)
+    if not benchmark_rows:
+        return empty
+
+    benchmark_column = _select_benchmark_column(benchmark_fieldnames, benchmark_name=benchmark_name)
+    if benchmark_column is None:
+        return empty
+
+    benchmark_levels = _read_level_series(benchmark_rows, benchmark_column)
+    equity_rows, equity_fieldnames = _read_csv_dicts(equity_path)
+    equity_column = _select_equity_column(equity_fieldnames) if equity_rows else None
+    strategy_levels = (
+        _read_level_series(equity_rows, equity_column)
+        if equity_column is not None
+        else _read_level_series(benchmark_rows, "equity")
+    )
+
+    strategy_returns = _pct_change_by_date(strategy_levels)
+    benchmark_returns = _pct_change_by_date(benchmark_levels)
+    common_dates = sorted(set(strategy_returns) & set(benchmark_returns))
+    if len(common_dates) < 2:
+        return empty
+
+    aligned_strategy = [strategy_returns[date] for date in common_dates]
+    aligned_benchmark = [benchmark_returns[date] for date in common_dates]
+    # Capture ratios use arithmetic mean period returns on aligned daily return series.
+    # This keeps the relation metric on the same frequency as the exported equity/benchmark CSV.
+    return {
+        "correlation_to_benchmark": _correlation(aligned_strategy, aligned_benchmark),
+        "up_capture_ratio": _capture_ratio(aligned_strategy, aligned_benchmark, positive=True),
+        "down_capture_ratio": _capture_ratio(aligned_strategy, aligned_benchmark, positive=False),
+    }
+
+
+def _read_csv_dicts(path: Path | None) -> tuple[list[dict[str, str]], tuple[str, ...]]:
+    if path is None or not path.exists():
+        return [], ()
+
+    try:
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            reader = csv.DictReader(
+                line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
+            )
+            rows = list(reader)
+            return rows, tuple(reader.fieldnames or ())
+    except OSError:
+        return [], ()
+
+
+def _csv_matches_run_id(path: Path | None, run_id: str | None) -> bool:
+    if path is None or run_id is None:
+        return True
+    try:
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            for _ in range(5):
+                line = file_obj.readline()
+                if not line:
+                    break
+                match = re.search(r"run_id\s*=\s*(20\d{6}_\d{6})", line)
+                if match:
+                    return match.group(1) == run_id
+    except OSError:
+        return False
+    return True
+
+
+def _select_equity_column(fieldnames: tuple[str, ...]) -> str | None:
+    for candidate in ("equity", "portfolio_value", "value", "total_value"):
+        for fieldname in fieldnames:
+            if fieldname.strip().lower() == candidate:
+                return fieldname
+    for fieldname in fieldnames:
+        if fieldname.strip().lower() not in {"date", "as_of"}:
+            return fieldname
+    return None
+
+
+def _read_level_series(rows: list[dict[str, str]], value_column: str | None) -> dict[str, float]:
+    if value_column is None:
+        return {}
+
+    series: dict[str, float] = {}
+    for row in rows:
+        date = _string_or_none(row.get("date") or row.get("as_of"))
+        value = _to_float(row.get(value_column))
+        if date is not None and value is not None and value > 0:
+            series[date] = value
+    return series
+
+
+def _pct_change_by_date(levels: dict[str, float]) -> dict[str, float]:
+    returns: dict[str, float] = {}
+    previous_value: float | None = None
+    for date in sorted(levels):
+        value = levels[date]
+        if previous_value is not None and previous_value > 0:
+            returns[date] = value / previous_value - 1.0
+        previous_value = value
+    return returns
+
+
+def _correlation(left: list[float], right: list[float]) -> float | None:
+    if len(left) != len(right) or len(left) < 2:
+        return None
+    left_mean = sum(left) / len(left)
+    right_mean = sum(right) / len(right)
+    left_diffs = [value - left_mean for value in left]
+    right_diffs = [value - right_mean for value in right]
+    numerator = sum(a * b for a, b in zip(left_diffs, right_diffs))
+    left_var = sum(value * value for value in left_diffs)
+    right_var = sum(value * value for value in right_diffs)
+    denominator = (left_var * right_var) ** 0.5
+    if denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _capture_ratio(strategy_returns: list[float], benchmark_returns: list[float], *, positive: bool) -> float | None:
+    pairs = [
+        (strategy_return, benchmark_return)
+        for strategy_return, benchmark_return in zip(strategy_returns, benchmark_returns)
+        if (benchmark_return > 0 if positive else benchmark_return < 0)
+    ]
+    if not pairs:
+        return None
+    strategy_mean = sum(strategy_return for strategy_return, _ in pairs) / len(pairs)
+    benchmark_mean = sum(benchmark_return for _, benchmark_return in pairs) / len(pairs)
+    if abs(benchmark_mean) <= 1e-12:
+        return None
+    return strategy_mean / benchmark_mean
+
+
 def _select_benchmark_column(
     fieldnames: tuple[str, ...],
     *,
@@ -627,6 +793,8 @@ def format_delta(
     delta = calc_delta(a, b)
     if delta is None:
         return "n/a"
+    if abs(delta) < 5e-13:
+        delta = 0.0
     sign = "+" if delta > 0 else ""
     if percent_points is None:
         percent_points = metric in PERCENT_POINT_METRICS
@@ -782,6 +950,9 @@ def build_console_report(comparison: dict[str, Any]) -> str:
         _benchmark_title(comparison),
         *_benchmark_rows(run_a, run_b),
         "",
+        "Benchmark Relation",
+        *_benchmark_relation_rows(run_a, run_b),
+        "",
         "Performance / Trading Verdict",
         *(_verdict_row(label, winner) for label, winner in build_performance_verdict(comparison)),
         "",
@@ -841,6 +1012,15 @@ def build_markdown_report(comparison: dict[str, Any]) -> str:
         _md_table(
             ("Metric", "A", "B", "Delta"),
             tuple(_benchmark_table_rows(run_a, run_b)),
+            align_right=(1, 2, 3),
+        ),
+        "",
+        "## Benchmark Relation",
+        "_Daily return relations; capture ratios use arithmetic mean returns in positive/negative benchmark periods._",
+        "",
+        _md_table(
+            ("Metric", "A", "B", "Delta"),
+            tuple(_benchmark_relation_table_rows(run_a, run_b)),
             align_right=(1, 2, 3),
         ),
         "",
@@ -1027,6 +1207,9 @@ def _snapshot_to_dict(snapshot: RunSnapshot) -> dict[str, Any]:
             "benchmark_max_drawdown_pct": snapshot.benchmark.benchmark_max_drawdown_pct,
             "benchmark_volatility_pct": snapshot.benchmark.benchmark_volatility_pct,
             "benchmark_sharpe_ratio": snapshot.benchmark.benchmark_sharpe_ratio,
+            "correlation_to_benchmark": snapshot.benchmark.correlation_to_benchmark,
+            "up_capture_ratio": snapshot.benchmark.up_capture_ratio,
+            "down_capture_ratio": snapshot.benchmark.down_capture_ratio,
         },
         "performance": {
             "final_equity": snapshot.performance.final_equity,
@@ -1116,6 +1299,10 @@ def _benchmark_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[str]:
     return [_benchmark_row(metric, run_a, run_b) for metric in _benchmark_metrics()]
 
 
+def _benchmark_relation_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[str]:
+    return [_benchmark_row(metric, run_a, run_b) for metric in _benchmark_relation_metrics()]
+
+
 def _benchmark_row(metric: str, run_a: dict[str, Any], run_b: dict[str, Any]) -> str:
     left_raw = run_a["benchmark"].get(metric)
     right_raw = run_b["benchmark"].get(metric)
@@ -1137,6 +1324,18 @@ def _benchmark_table_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[
     ]
 
 
+def _benchmark_relation_table_rows(run_a: dict[str, Any], run_b: dict[str, Any]) -> list[tuple[str, str | None, str | None, str]]:
+    return [
+        (
+            metric,
+            _format_performance_value(metric, run_a["benchmark"].get(metric)),
+            _format_performance_value(metric, run_b["benchmark"].get(metric)),
+            format_delta(metric=metric, a=run_a["benchmark"].get(metric), b=run_b["benchmark"].get(metric)),
+        )
+        for metric in _benchmark_relation_metrics()
+    ]
+
+
 def _benchmark_metrics() -> tuple[str, ...]:
     return (
         "benchmark_return_pct",
@@ -1144,6 +1343,14 @@ def _benchmark_metrics() -> tuple[str, ...]:
         "benchmark_max_drawdown_pct",
         "benchmark_volatility_pct",
         "benchmark_sharpe_ratio",
+    )
+
+
+def _benchmark_relation_metrics() -> tuple[str, ...]:
+    return (
+        "correlation_to_benchmark",
+        "up_capture_ratio",
+        "down_capture_ratio",
     )
 
 
