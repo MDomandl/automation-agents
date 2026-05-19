@@ -182,7 +182,7 @@ def load_run_snapshot(
 
     universe = extract_universe(manifest, decision_payloads, text_blob)
     performance = extract_performance(text_blob, referenced_paths)
-    benchmark = extract_benchmark(text_blob, referenced_paths, run_id=run_id)
+    benchmark = extract_benchmark(text_blob, referenced_paths, run_id=run_id, output_dir=output_dir)
     behavior = extract_behavior(decision_payloads, referenced_paths)
 
     sources = {}
@@ -283,10 +283,10 @@ def resolve_referenced_output_paths(
         path = Path(raw_path)
         candidates.append(path)
         if not path.is_absolute():
-            if cwd is not None:
-                candidates.append(cwd / path)
             if output_dir is not None:
                 candidates.append(output_dir / path)
+            if cwd is not None:
+                candidates.append(cwd / path)
 
         existing = next(
             (
@@ -381,6 +381,7 @@ def extract_benchmark(
     referenced_paths: dict[str, Path],
     *,
     run_id: str | None = None,
+    output_dir: Path | None = None,
 ) -> BenchmarkInfo:
     summary_path = referenced_paths.get("summary")
     if summary_path is not None and "automation_runs" in summary_path.parts:
@@ -398,6 +399,7 @@ def extract_benchmark(
         referenced_paths.get("bench"),
         benchmark_name=benchmark_name,
         run_id=run_id,
+        artifacts_root=output_dir,
     )
 
     return BenchmarkInfo(
@@ -563,15 +565,16 @@ def read_benchmark_relation_metrics(
     *,
     benchmark_name: str | None = None,
     run_id: str | None = None,
+    artifacts_root: Path | None = None,
 ) -> dict[str, float | None]:
     empty = {
         "correlation_to_benchmark": None,
         "up_capture_ratio": None,
         "down_capture_ratio": None,
     }
-    if not _csv_matches_run_id(benchmark_path, run_id):
+    if not _csv_matches_run_id(benchmark_path, run_id, artifacts_root=artifacts_root):
         return empty
-    if equity_path is not None and not _csv_matches_run_id(equity_path, run_id):
+    if equity_path is not None and not _csv_matches_run_id(equity_path, run_id, artifacts_root=artifacts_root):
         return empty
 
     benchmark_rows, benchmark_fieldnames = _read_csv_dicts(benchmark_path)
@@ -623,8 +626,15 @@ def _read_csv_dicts(path: Path | None) -> tuple[list[dict[str, str]], tuple[str,
         return [], ()
 
 
-def _csv_matches_run_id(path: Path | None, run_id: str | None) -> bool:
+def _csv_matches_run_id(
+    path: Path | None,
+    run_id: str | None,
+    *,
+    artifacts_root: Path | None = None,
+) -> bool:
     if path is None or run_id is None:
+        return True
+    if artifacts_root is not None and _is_relative_to(path, artifacts_root):
         return True
     try:
         with path.open("r", encoding="utf-8", newline="") as file_obj:

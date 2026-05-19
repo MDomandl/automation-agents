@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import calendar
 import json
+import re
+import shutil
 import sys
 import tomllib
 from dataclasses import dataclass, replace
@@ -15,6 +17,9 @@ from app.domain.bt_run.run_context import RunContext, CompareMode, RunProfile
 from app.domain.bt_run.run_result import RunResult, StepResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
+
+
+OUTPUT_PATH_RE = re.compile(r"^(?P<label>Equity|Positions|Trades|Bench|Summary):\s*(?P<path>.+?)\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +178,30 @@ def build_run_manifest(context: RunContext, result: RunResult) -> dict:
         },
     }
 
+
+def copy_referenced_backtest_artifacts(context: RunContext, result: RunResult) -> dict[str, str]:
+    copied: dict[str, str] = {}
+    text = "\n".join((result.backtest.stdout, result.backtest.stderr))
+    for match in OUTPUT_PATH_RE.finditer(text):
+        label = match.group("label").lower()
+        raw_path = match.group("path").strip()
+        source_path = Path(raw_path)
+        if not source_path.is_absolute():
+            source_path = context.ai_agents_dir / source_path
+        if not source_path.exists() or not source_path.is_file():
+            continue
+
+        try:
+            relative_path = source_path.resolve().relative_to(context.ai_agents_dir.resolve())
+        except ValueError:
+            relative_path = Path(source_path.name)
+        target_path = context.output_dir / relative_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, target_path)
+        copied[label] = str(target_path)
+    return copied
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -259,6 +288,7 @@ def main() -> None:
     (context.output_dir / "backtest_stderr.txt").write_text(result.backtest.stderr, encoding="utf-8")
     (context.output_dir / "runner_stdout.txt").write_text(result.runner.stdout, encoding="utf-8")
     (context.output_dir / "runner_stderr.txt").write_text(result.runner.stderr, encoding="utf-8")
+    artifact_paths = copy_referenced_backtest_artifacts(context, result)
     warnings_text = "\n".join(result.warnings) if result.warnings else "None"
 
     summary_text = (
@@ -297,6 +327,7 @@ def main() -> None:
     print(result.runner.stderr)
 
     manifest = build_run_manifest(context, result)
+    manifest["artifacts"] = artifact_paths
     (context.output_dir / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),
         encoding="utf-8",
