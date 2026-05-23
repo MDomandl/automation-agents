@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,18 @@ class SectorVariant:
 
 
 @dataclass(frozen=True, slots=True)
+class SectorMetrics:
+    max_sector_weight_pct: float | None = None
+    dominant_sector: str | None = None
+    sector_count: int | None = None
+    sector_distribution_pct: dict[str, float] | None = None
+    max_sector_positions: int | None = None
+    dominant_sector_positions: int | None = None
+    source: str = "n/a"
+    warning: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SectorRunResult:
     test_id: str
     sector_variant: str
@@ -68,6 +81,7 @@ class SectorRunResult:
     up_capture_ratio: float | None
     down_capture_ratio: float | None
     success: bool
+    sector_metrics: SectorMetrics = field(default_factory=SectorMetrics)
 
 
 def parse_args() -> argparse.Namespace:
@@ -267,6 +281,7 @@ def _build_result(
 ) -> SectorRunResult:
     perf = snapshot.performance
     bench = snapshot.benchmark
+    sector_metrics = build_sector_metrics(snapshot)
     return SectorRunResult(
         test_id=test_id,
         sector_variant=variant.name,
@@ -288,12 +303,14 @@ def _build_result(
         up_capture_ratio=bench.up_capture_ratio,
         down_capture_ratio=bench.down_capture_ratio,
         success=_snapshot_success(snapshot),
+        sector_metrics=sector_metrics,
     )
 
 
 def build_run_report(*, test_id: str, variant: SectorVariant, profile: str, snapshot: Any) -> str:
     perf = snapshot.performance
     bench = snapshot.benchmark
+    sector_metrics = build_sector_metrics(snapshot)
     lines = [
         "# max_per_sector Run Report",
         "",
@@ -349,7 +366,19 @@ def build_run_report(*, test_id: str, variant: SectorVariant, profile: str, snap
         ),
         "",
         "## Sector Metrics",
-        "TODO: Derive Max Sector Weight, Dominant Sector, and Sector Count from existing portfolio/decision artifacts.",
+        _md_table(
+            ("Metric", "Value"),
+            (
+                ("max_sector_weight", _fmt_pct(sector_metrics.max_sector_weight_pct)),
+                ("dominant_sector", sector_metrics.dominant_sector or "n/a"),
+                ("sector_count", sector_metrics.sector_count),
+                ("sector_distribution", _format_sector_distribution(sector_metrics)),
+                ("max_sector_positions", sector_metrics.max_sector_positions),
+                ("dominant_sector_positions", sector_metrics.dominant_sector_positions),
+                ("source", sector_metrics.source),
+                ("warning", sector_metrics.warning or "n/a"),
+            ),
+        ),
         "",
     ]
     return "\n".join(lines)
@@ -382,6 +411,10 @@ def build_summary(results: list[SectorRunResult]) -> str:
                 "Benchmark Sharpe",
                 "Up Capture",
                 "Down Capture",
+                "Max Sector Weight",
+                "Dominant Sector",
+                "Sector Count",
+                "Sector Distribution",
             ),
             tuple(_summary_row(result) for result in results),
         ),
@@ -398,9 +431,6 @@ def build_summary(results: list[SectorRunResult]) -> str:
             ),
             tuple(_winner_row(profile, results) for profile in ("SHORT", "MEDIUM", "LONG")),
         ),
-        "",
-        "## Sector Metrics",
-        "TODO: Max Sector Weight, Dominant Sector, and Sector Count are not included yet.",
         "",
         "## Reports",
         _md_table(
@@ -429,6 +459,7 @@ def build_summary(results: list[SectorRunResult]) -> str:
 
 
 def _summary_row(result: SectorRunResult) -> tuple[object, ...]:
+    sector_metrics = result.sector_metrics
     return (
         result.sector_variant,
         _sector_value(result.max_per_sector),
@@ -447,7 +478,184 @@ def _summary_row(result: SectorRunResult) -> tuple[object, ...]:
         _fmt_num(result.benchmark_sharpe_ratio),
         _fmt_num(result.up_capture_ratio),
         _fmt_num(result.down_capture_ratio),
+        _fmt_pct(sector_metrics.max_sector_weight_pct),
+        sector_metrics.dominant_sector or "n/a",
+        sector_metrics.sector_count if sector_metrics.sector_count is not None else "n/a",
+        _format_sector_distribution(sector_metrics),
     )
+
+
+def build_sector_metrics(snapshot: Any) -> SectorMetrics:
+    weights = getattr(getattr(snapshot, "behavior", None), "last_portfolio", None)
+    if weights:
+        meta_path = _resolve_meta_path(snapshot)
+        sector_lookup = load_sector_lookup(meta_path)
+        if sector_lookup is None:
+            warning = f"missing sector meta file: {meta_path.as_posix() if meta_path is not None else 'n/a'}"
+            print(f"WARNING: {warning}")
+            return SectorMetrics(warning=warning)
+        return calculate_sector_metrics_from_weights(
+            weights,
+            sector_lookup,
+            source="decision_bundle_final_weights",
+        )
+
+    positions_path = _source_path(snapshot, "positions_path")
+    if positions_path is None:
+        return SectorMetrics(warning="missing final weights and positions data")
+    return calculate_sector_metrics_from_positions_csv(positions_path)
+
+
+def calculate_sector_metrics_from_weights(
+    weights: dict[str, float],
+    sector_lookup: dict[str, str],
+    *,
+    source: str,
+) -> SectorMetrics:
+    if not weights:
+        return SectorMetrics(warning="missing weight data")
+
+    sector_weights: dict[str, float] = {}
+    sector_positions: dict[str, int] = {}
+    has_numeric_weight = False
+    for ticker, raw_weight in weights.items():
+        weight = _to_float(raw_weight)
+        if weight is None:
+            continue
+        if ticker.upper() == "CASH" or abs(weight) <= 1e-12:
+            continue
+        has_numeric_weight = True
+        sector = _clean_sector(sector_lookup.get(ticker.upper()))
+        sector_weights[sector] = sector_weights.get(sector, 0.0) + weight
+        sector_positions[sector] = sector_positions.get(sector, 0) + 1
+
+    if not has_numeric_weight or not sector_weights:
+        return SectorMetrics(warning="missing weight data")
+
+    dominant_sector, max_weight = max(
+        sector_weights.items(),
+        key=lambda item: (item[1], item[0]),
+    )
+    max_positions = max(sector_positions.values()) if sector_positions else None
+    return SectorMetrics(
+        max_sector_weight_pct=max_weight * 100.0,
+        dominant_sector=dominant_sector,
+        sector_count=len(sector_weights),
+        sector_distribution_pct={
+            sector: weight * 100.0
+            for sector, weight in sorted(sector_weights.items(), key=lambda item: (-item[1], item[0]))
+        },
+        max_sector_positions=max_positions,
+        dominant_sector_positions=sector_positions.get(dominant_sector),
+        source=source,
+    )
+
+
+def calculate_sector_metrics_from_positions_csv(path: Path) -> SectorMetrics:
+    if not path.exists():
+        return SectorMetrics(warning=f"missing positions data: {path.as_posix()}")
+
+    try:
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            reader = csv.DictReader(
+                line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
+            )
+            rows = list(reader)
+    except OSError as exc:
+        return SectorMetrics(warning=f"could not read positions data: {exc}")
+
+    if not rows:
+        return SectorMetrics(warning="missing positions data")
+
+    as_of_values = [row.get("as_of") for row in rows if row.get("as_of")]
+    last_as_of = sorted(as_of_values)[-1] if as_of_values else None
+    selected = [row for row in rows if last_as_of is None or row.get("as_of") == last_as_of]
+    weights: dict[str, float] = {}
+    sectors: dict[str, str] = {}
+    missing_weight = False
+    for row in selected:
+        ticker = str(row.get("ticker") or "").strip()
+        if not ticker:
+            continue
+        weight = _to_float(row.get("weight"))
+        if weight is None:
+            missing_weight = True
+            continue
+        weights[ticker] = weight
+        sectors[ticker.upper()] = _clean_sector(row.get("sector"))
+
+    if missing_weight or not weights:
+        return SectorMetrics(source="positions_csv_last_as_of", warning="missing weight data")
+
+    return calculate_sector_metrics_from_weights(
+        weights,
+        sectors,
+        source="positions_csv_last_as_of",
+    )
+
+
+def load_sector_lookup(path: Path | None) -> dict[str, str] | None:
+    if path is None or not path.exists():
+        return None
+
+    with path.open("r", encoding="utf-8", newline="") as file_obj:
+        reader = csv.DictReader(file_obj)
+        lookup = {}
+        for row in reader:
+            ticker = str(row.get("ticker") or row.get("symbol") or "").strip().upper()
+            if ticker:
+                lookup[ticker] = _clean_sector(row.get("sector"))
+        return lookup
+
+
+def _resolve_meta_path(snapshot: Any) -> Path | None:
+    universe_file = getattr(getattr(snapshot, "universe", None), "universe_file", None)
+    candidates: list[Path] = []
+    if universe_file:
+        universe_path = Path(str(universe_file))
+        candidates.append(universe_path.with_name("sp500_meta.csv"))
+        candidates.append(universe_path.with_name(f"{universe_path.stem}_meta.csv"))
+    candidates.extend(
+        (
+            default_ai_agents_root() / "aktien_oop" / "universes" / "sp500_meta.csv",
+            Path("aktien_oop") / "universes" / "sp500_meta.csv",
+        )
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0] if candidates else None
+
+
+def _source_path(snapshot: Any, key: str) -> Path | None:
+    sources = getattr(snapshot, "sources", None)
+    if not isinstance(sources, dict):
+        return None
+    value = sources.get(key)
+    if not value:
+        return None
+    return Path(str(value))
+
+
+def _clean_sector(value: object) -> str:
+    text = "" if value is None else str(value).strip()
+    return text or "Unknown"
+
+
+def _format_sector_distribution(metrics: SectorMetrics) -> str:
+    distribution = metrics.sector_distribution_pct
+    if not distribution:
+        return "n/a"
+    return "; ".join(f"{sector}={_fmt_pct(weight)}" for sector, weight in distribution.items())
+
+
+def _to_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip().replace("%", ""))
+    except ValueError:
+        return None
 
 
 def _winner_row(profile: str, results: list[SectorRunResult]) -> tuple[object, ...]:
