@@ -2,10 +2,12 @@ from pathlib import Path
 
 from scripts.run_max_per_sector_testmatrix import SectorMetrics
 from scripts.run_profile_compare_v1 import (
+    PROFILE_CONFIG_PATHS,
     ProfileRunResult,
     StrategyProfile,
     _write_matrix_config,
     build_summary,
+    load_strategy_profile,
 )
 from scripts.run_regime_cash_testmatrix import CashMetrics
 
@@ -39,12 +41,20 @@ def test_write_matrix_config_applies_profile_compare_baseline(tmp_path: Path) ->
         encoding="utf-8",
     )
     profile = StrategyProfile(
-        name="conservative",
+        name="conservative_v1",
         label="Conservative v1",
         file_stem="profile_conservative",
+        universe="sp500",
+        top_k=15,
+        use_sector_limits=True,
+        max_per_sector=2,
+        max_turnover_cap=0.20,
         require_above_sma=True,
         regime_below_action="SELL",
         include_cash=True,
+        cash_yield_annual=0.00,
+        regime_sma_days=200,
+        benchmark_ticker="SXR8.DE",
     )
 
     _write_matrix_config(config_path, profile)
@@ -63,6 +73,72 @@ def test_write_matrix_config_applies_profile_compare_baseline(tmp_path: Path) ->
     assert "require_above_sma = true" in updated
     assert "regime_sma_days = 200" in updated
     assert 'regime_below_action = "SELL"' in updated
+
+
+def test_all_profile_files_can_be_loaded() -> None:
+    profiles = [load_strategy_profile(path) for path in PROFILE_CONFIG_PATHS]
+
+    assert [profile.label for profile in profiles] == [
+        "Conservative v1",
+        "Balanced v1",
+        "Offensive v1",
+    ]
+    assert [profile.name for profile in profiles] == [
+        "conservative_v1",
+        "balanced_v1",
+        "offensive_v1",
+    ]
+
+
+def test_load_strategy_profile_validates_required_keys(tmp_path: Path) -> None:
+    profile_path = tmp_path / "broken.toml"
+    profile_path.write_text('profile_name = "broken"\n', encoding="utf-8")
+
+    try:
+        load_strategy_profile(profile_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected invalid profile to raise ValueError")
+
+    assert "missing required keys" in message
+    assert "profile_label" in message
+    assert "benchmark_ticker" in message
+
+
+def test_load_strategy_profile_rejects_invalid_regime_below_action(tmp_path: Path) -> None:
+    profile_path = tmp_path / "invalid_action.toml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                'profile_name = "invalid"',
+                'profile_label = "Invalid"',
+                'universe = "sp500"',
+                "top_k = 15",
+                "use_sector_limits = true",
+                "max_per_sector = 2",
+                "max_turnover_cap = 0.20",
+                "require_above_sma = true",
+                'regime_below_action = "CASH"',
+                "include_cash = true",
+                "cash_yield_annual = 0.00",
+                "regime_sma_days = 200",
+                'benchmark_ticker = "SXR8.DE"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_strategy_profile(profile_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected invalid regime_below_action to raise ValueError")
+
+    assert "regime_below_action" in message
+    assert "SELL" in message
+    assert "HOLD" in message
 
 
 def test_build_summary_contains_requested_columns_and_winner_overview() -> None:
@@ -119,8 +195,13 @@ def test_build_summary_contains_requested_columns_and_winner_overview() -> None:
     assert "Lowest Down Capture" in summary
     assert "Lowest Turnover" in summary
     assert "| Conservative v1 | SHORT | 20260530_010001 |" in summary
-    assert "| SHORT | Offensive v1 | Conservative v1 | Balanced v1 | Conservative v1 | Conservative v1 |" in summary
+    assert (
+        "| SHORT | Offensive v1 | Conservative v1 | Balanced v1 | "
+        "Conservative v1 | Conservative v1 |"
+    ) in summary
+    assert "| Conservative v1 | true | SELL | true |" in summary
     assert "| Balanced v1 | true | HOLD | false |" in summary
+    assert "| Offensive v1 | false | HOLD | false |" in summary
 
 
 def _result(

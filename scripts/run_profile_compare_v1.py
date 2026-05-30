@@ -4,6 +4,7 @@ import argparse
 import json
 import subprocess
 import sys
+import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -35,12 +36,31 @@ from scripts.run_top_k_testmatrix import (
     replace_top_k,
 )
 
-
-PROFILE_COMPARE_TOP_K = 15
-PROFILE_COMPARE_MAX_PER_SECTOR = 2
-PROFILE_COMPARE_MAX_TURNOVER_CAP = 0.20
-PROFILE_COMPARE_BENCHMARK = "SXR8.DE"
 REPORT_DIR = Path("reports") / "strategy_analysis" / "profile_compare_v1"
+PROFILE_CONFIG_DIR = Path("configs") / "profiles"
+PROFILE_CONFIG_PATHS = (
+    PROFILE_CONFIG_DIR / "conservative_v1.toml",
+    PROFILE_CONFIG_DIR / "balanced_v1.toml",
+    PROFILE_CONFIG_DIR / "offensive_v1.toml",
+)
+REQUIRED_PROFILE_KEYS = frozenset(
+    {
+        "profile_name",
+        "profile_label",
+        "universe",
+        "top_k",
+        "use_sector_limits",
+        "max_per_sector",
+        "max_turnover_cap",
+        "require_above_sma",
+        "regime_below_action",
+        "include_cash",
+        "cash_yield_annual",
+        "regime_sma_days",
+        "benchmark_ticker",
+    }
+)
+ALLOWED_REGIME_BELOW_ACTIONS = frozenset({"SELL", "HOLD"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,9 +68,17 @@ class StrategyProfile:
     name: str
     label: str
     file_stem: str
+    universe: str
+    top_k: int
+    use_sector_limits: bool
+    max_per_sector: int
+    max_turnover_cap: float
     require_above_sma: bool
     regime_below_action: str
     include_cash: bool
+    cash_yield_annual: float
+    regime_sma_days: int
+    benchmark_ticker: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +144,8 @@ def main() -> None:
     results: list[ProfileRunResult] = []
     try:
         test_index = 1
-        for strategy_profile in _strategy_profiles():
+        strategy_profiles = _strategy_profiles()
+        for strategy_profile in strategy_profiles:
             for profile in args.profiles:
                 test_id = f"P{test_index}"
                 test_index += 1
@@ -159,37 +188,62 @@ def main() -> None:
         runner_config_path.write_text(original_runner_config, encoding="utf-8")
 
     summary_path = report_dir / "profile_compare_v1_summary.md"
-    summary_path.write_text(build_summary(results), encoding="utf-8")
+    summary_path.write_text(
+        build_summary(results, strategy_profiles=strategy_profiles),
+        encoding="utf-8",
+    )
     print("Summary written:")
     print(summary_path.as_posix())
 
 
-def _strategy_profiles() -> tuple[StrategyProfile, ...]:
-    return (
-        StrategyProfile(
-            name="conservative",
-            label="Conservative v1",
-            file_stem="profile_conservative",
-            require_above_sma=True,
-            regime_below_action="SELL",
-            include_cash=True,
-        ),
-        StrategyProfile(
-            name="balanced",
-            label="Balanced v1",
-            file_stem="profile_balanced",
-            require_above_sma=True,
-            regime_below_action="HOLD",
-            include_cash=False,
-        ),
-        StrategyProfile(
-            name="offensive",
-            label="Offensive v1",
-            file_stem="profile_offensive",
-            require_above_sma=False,
-            regime_below_action="HOLD",
-            include_cash=False,
-        ),
+def _strategy_profiles(
+    profile_paths: tuple[Path, ...] = PROFILE_CONFIG_PATHS,
+) -> tuple[StrategyProfile, ...]:
+    return tuple(load_strategy_profile(path) for path in profile_paths)
+
+
+def load_strategy_profile(path: Path) -> StrategyProfile:
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"Invalid profile TOML in {path}: {exc}") from exc
+    except OSError as exc:
+        raise ValueError(f"Could not read profile file {path}: {exc}") from exc
+
+    missing = sorted(REQUIRED_PROFILE_KEYS - raw.keys())
+    if missing:
+        raise ValueError(f"Invalid profile {path}: missing required keys: {', '.join(missing)}")
+
+    action = raw["regime_below_action"]
+    if action not in ALLOWED_REGIME_BELOW_ACTIONS:
+        allowed = ", ".join(sorted(ALLOWED_REGIME_BELOW_ACTIONS))
+        raise ValueError(
+            f"Invalid profile {path}: regime_below_action must be one of {allowed}; got {action!r}"
+        )
+
+    universe = raw["universe"]
+    if universe not in UNIVERSES:
+        known = ", ".join(sorted(UNIVERSES))
+        raise ValueError(
+            f"Invalid profile {path}: universe must be one of {known}; got {universe!r}"
+        )
+
+    name = raw["profile_name"]
+    return StrategyProfile(
+        name=name,
+        label=raw["profile_label"],
+        file_stem=_profile_file_stem(name),
+        universe=universe,
+        top_k=raw["top_k"],
+        use_sector_limits=raw["use_sector_limits"],
+        max_per_sector=raw["max_per_sector"],
+        max_turnover_cap=raw["max_turnover_cap"],
+        require_above_sma=raw["require_above_sma"],
+        regime_below_action=action,
+        include_cash=raw["include_cash"],
+        cash_yield_annual=raw["cash_yield_annual"],
+        regime_sma_days=raw["regime_sma_days"],
+        benchmark_ticker=raw["benchmark_ticker"],
     )
 
 
@@ -233,16 +287,18 @@ def _run_for_strategy_profile(
 
 def _write_matrix_config(path: Path, strategy_profile: StrategyProfile) -> None:
     text = path.read_text(encoding="utf-8")
-    text = _replace_universe_section(text, UNIVERSES["sp500"])
-    text = replace_top_k(text, PROFILE_COMPARE_TOP_K)
+    text = _replace_universe_section(text, UNIVERSES[strategy_profile.universe])
+    text = replace_top_k(text, strategy_profile.top_k)
     text = replace_sector_limits(
         text,
-        use_sector_limits=True,
-        max_per_sector=PROFILE_COMPARE_MAX_PER_SECTOR,
+        use_sector_limits=strategy_profile.use_sector_limits,
+        max_per_sector=strategy_profile.max_per_sector,
     )
-    text = replace_max_turnover_cap(text, PROFILE_COMPARE_MAX_TURNOVER_CAP)
-    text = replace_benchmark(text, PROFILE_COMPARE_BENCHMARK)
+    text = replace_max_turnover_cap(text, strategy_profile.max_turnover_cap)
+    text = replace_benchmark(text, strategy_profile.benchmark_ticker)
     text = replace_regime_cash(text, strategy_profile)
+    text = _replace_cash_yield_annual(text, strategy_profile.cash_yield_annual)
+    text = _replace_regime_sma_days(text, strategy_profile.regime_sma_days)
     path.write_text(text, encoding="utf-8")
 
 
@@ -275,17 +331,17 @@ def build_run_report(
             (
                 ("test_id", test_id),
                 ("profile", strategy_profile.label),
-                ("universe", "sp500"),
-                ("top_k", PROFILE_COMPARE_TOP_K),
-                ("use_sector_limits", "true"),
-                ("max_per_sector", PROFILE_COMPARE_MAX_PER_SECTOR),
-                ("max_turnover_cap", f"{PROFILE_COMPARE_MAX_TURNOVER_CAP:.2f}"),
-                ("benchmark", PROFILE_COMPARE_BENCHMARK),
+                ("universe", strategy_profile.universe),
+                ("top_k", strategy_profile.top_k),
+                ("use_sector_limits", _bool_text(strategy_profile.use_sector_limits)),
+                ("max_per_sector", strategy_profile.max_per_sector),
+                ("max_turnover_cap", f"{strategy_profile.max_turnover_cap:.2f}"),
+                ("benchmark", strategy_profile.benchmark_ticker),
                 ("require_above_sma", _bool_text(strategy_profile.require_above_sma)),
                 ("regime_below_action", strategy_profile.regime_below_action),
                 ("include_cash", _bool_text(strategy_profile.include_cash)),
-                ("cash_yield_annual", "0.00"),
-                ("regime_sma_days", 200),
+                ("cash_yield_annual", f"{strategy_profile.cash_yield_annual:.2f}"),
+                ("regime_sma_days", strategy_profile.regime_sma_days),
                 ("period_profile", profile.upper()),
                 ("run_id", snapshot.run_id),
             ),
@@ -386,18 +442,24 @@ def _build_result(
     )
 
 
-def build_summary(results: list[ProfileRunResult]) -> str:
+def build_summary(
+    results: list[ProfileRunResult],
+    *,
+    strategy_profiles: tuple[StrategyProfile, ...] | None = None,
+) -> str:
+    profile_configs = strategy_profiles or _strategy_profiles()
+    first_profile = profile_configs[0]
     lines = [
         "# Profile Compare v1",
         "",
-        "Universe: sp500",
-        f"top_k: {PROFILE_COMPARE_TOP_K}",
-        "use_sector_limits: true",
-        f"max_per_sector: {PROFILE_COMPARE_MAX_PER_SECTOR}",
-        f"max_turnover_cap: {PROFILE_COMPARE_MAX_TURNOVER_CAP:.2f}",
-        "cash_yield_annual: 0.00",
-        "regime_sma_days: 200",
-        f"Benchmark: {PROFILE_COMPARE_BENCHMARK}",
+        f"Universe: {first_profile.universe}",
+        f"top_k: {first_profile.top_k}",
+        f"use_sector_limits: {_bool_text(first_profile.use_sector_limits)}",
+        f"max_per_sector: {first_profile.max_per_sector}",
+        f"max_turnover_cap: {first_profile.max_turnover_cap:.2f}",
+        f"cash_yield_annual: {first_profile.cash_yield_annual:.2f}",
+        f"regime_sma_days: {first_profile.regime_sma_days}",
+        f"Benchmark: {first_profile.benchmark_ticker}",
         "",
         "## Runs",
         _md_table(
@@ -453,7 +515,7 @@ def build_summary(results: list[ProfileRunResult]) -> str:
                     profile.regime_below_action,
                     _bool_text(profile.include_cash),
                 )
-                for profile in _strategy_profiles()
+                for profile in profile_configs
             ),
         ),
         "",
@@ -551,7 +613,7 @@ def _best_profile(
 
 
 def _assessment(results: list[ProfileRunResult]) -> str:
-    by_name = {result.profile_name: result for result in results}
+    by_name = {_base_profile_name(result.profile_name): result for result in results}
     conservative = by_name.get("conservative")
     balanced = by_name.get("balanced")
     offensive = by_name.get("offensive")
@@ -626,6 +688,65 @@ def _extract_run_id(stdout: str) -> str | None:
 
 def _bool_text(value: bool) -> str:
     return "true" if value else "false"
+
+
+def _profile_file_stem(profile_name: str) -> str:
+    return f"profile_{_base_profile_name(profile_name)}"
+
+
+def _base_profile_name(profile_name: str) -> str:
+    return profile_name.removesuffix("_v1")
+
+
+def _replace_cash_yield_annual(text: str, cash_yield_annual: float) -> str:
+    return _replace_top_level_scalar(text, "cash_yield_annual", f"{cash_yield_annual:.2f}")
+
+
+def _replace_regime_sma_days(text: str, regime_sma_days: int) -> str:
+    return _replace_section_scalar(text, "regime", "regime_sma_days", str(regime_sma_days))
+
+
+def _replace_top_level_scalar(text: str, key: str, value: str) -> str:
+    lines = text.splitlines()
+    result: list[str] = []
+    section = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.strip("[]").strip().lower()
+            result.append(line)
+            continue
+        if section == "" and stripped.startswith(key):
+            prefix, _, rest = line.partition("=")
+            result.append(f"{prefix}= {value}{_comment(rest)}")
+            continue
+        result.append(line)
+    return "\n".join(result) + "\n"
+
+
+def _replace_section_scalar(text: str, section_name: str, key: str, value: str) -> str:
+    lines = text.splitlines()
+    result: list[str] = []
+    section = ""
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped.strip("[]").strip().lower()
+            result.append(line)
+            continue
+        if section == section_name and stripped.startswith(key):
+            prefix, _, rest = line.partition("=")
+            result.append(f"{prefix}= {value}{_comment(rest)}")
+            continue
+        result.append(line)
+    return "\n".join(result) + "\n"
+
+
+def _comment(rest: str) -> str:
+    if "#" not in rest:
+        return ""
+    _, _, comment_tail = rest.partition("#")
+    return "  #" + comment_tail
 
 
 if __name__ == "__main__":
