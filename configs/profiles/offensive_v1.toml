@@ -1,0 +1,18 @@
+profile_name = "offensive_v1"
+profile_label = "Offensive v1"
+
+universe = "sp500"
+top_k = 15
+
+use_sector_limits = true
+max_per_sector = 2
+
+max_turnover_cap = 0.20
+
+require_above_sma = false
+regime_below_action = "HOLD"
+include_cash = false
+cash_yield_annual = 0.00
+regime_sma_days = 200
+
+benchmark_ticker = "SXR8.DE"
