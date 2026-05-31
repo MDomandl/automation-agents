@@ -4,7 +4,6 @@ import argparse
 import json
 import subprocess
 import sys
-import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,14 +17,10 @@ from scripts.run_max_per_sector_testmatrix import (
     SectorMetrics,
     _format_sector_distribution,
     build_sector_metrics,
-    replace_sector_limits,
 )
-from scripts.run_max_turnover_cap_testmatrix import replace_benchmark, replace_max_turnover_cap
-from scripts.run_regime_cash_testmatrix import CashMetrics, build_cash_metrics, replace_regime_cash
+from scripts.run_regime_cash_testmatrix import CashMetrics, build_cash_metrics
 from scripts.run_sp500_testmatrix import (
     PROFILE_NAMES,
-    UNIVERSES,
-    _replace_universe_section,
     default_ai_agents_root,
 )
 from scripts.run_top_k_testmatrix import (
@@ -33,52 +28,15 @@ from scripts.run_top_k_testmatrix import (
     _fmt_pct,
     _md_table,
     _snapshot_success,
-    replace_top_k,
+)
+from scripts.strategy_profiles import (
+    PROFILE_CONFIG_PATHS,
+    StrategyProfile,
+    apply_strategy_profile_overlay,
+    load_strategy_profile,
 )
 
 REPORT_DIR = Path("reports") / "strategy_analysis" / "profile_compare_v1"
-PROFILE_CONFIG_DIR = Path("configs") / "profiles"
-PROFILE_CONFIG_PATHS = (
-    PROFILE_CONFIG_DIR / "conservative_v1.toml",
-    PROFILE_CONFIG_DIR / "balanced_v1.toml",
-    PROFILE_CONFIG_DIR / "offensive_v1.toml",
-)
-REQUIRED_PROFILE_KEYS = frozenset(
-    {
-        "profile_name",
-        "profile_label",
-        "universe",
-        "top_k",
-        "use_sector_limits",
-        "max_per_sector",
-        "max_turnover_cap",
-        "require_above_sma",
-        "regime_below_action",
-        "include_cash",
-        "cash_yield_annual",
-        "regime_sma_days",
-        "benchmark_ticker",
-    }
-)
-ALLOWED_REGIME_BELOW_ACTIONS = frozenset({"SELL", "HOLD"})
-
-
-@dataclass(frozen=True, slots=True)
-class StrategyProfile:
-    name: str
-    label: str
-    file_stem: str
-    universe: str
-    top_k: int
-    use_sector_limits: bool
-    max_per_sector: int
-    max_turnover_cap: float
-    require_above_sma: bool
-    regime_below_action: str
-    include_cash: bool
-    cash_yield_annual: float
-    regime_sma_days: int
-    benchmark_ticker: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,51 +160,6 @@ def _strategy_profiles(
     return tuple(load_strategy_profile(path) for path in profile_paths)
 
 
-def load_strategy_profile(path: Path) -> StrategyProfile:
-    try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"Invalid profile TOML in {path}: {exc}") from exc
-    except OSError as exc:
-        raise ValueError(f"Could not read profile file {path}: {exc}") from exc
-
-    missing = sorted(REQUIRED_PROFILE_KEYS - raw.keys())
-    if missing:
-        raise ValueError(f"Invalid profile {path}: missing required keys: {', '.join(missing)}")
-
-    action = raw["regime_below_action"]
-    if action not in ALLOWED_REGIME_BELOW_ACTIONS:
-        allowed = ", ".join(sorted(ALLOWED_REGIME_BELOW_ACTIONS))
-        raise ValueError(
-            f"Invalid profile {path}: regime_below_action must be one of {allowed}; got {action!r}"
-        )
-
-    universe = raw["universe"]
-    if universe not in UNIVERSES:
-        known = ", ".join(sorted(UNIVERSES))
-        raise ValueError(
-            f"Invalid profile {path}: universe must be one of {known}; got {universe!r}"
-        )
-
-    name = raw["profile_name"]
-    return StrategyProfile(
-        name=name,
-        label=raw["profile_label"],
-        file_stem=_profile_file_stem(name),
-        universe=universe,
-        top_k=raw["top_k"],
-        use_sector_limits=raw["use_sector_limits"],
-        max_per_sector=raw["max_per_sector"],
-        max_turnover_cap=raw["max_turnover_cap"],
-        require_above_sma=raw["require_above_sma"],
-        regime_below_action=action,
-        include_cash=raw["include_cash"],
-        cash_yield_annual=raw["cash_yield_annual"],
-        regime_sma_days=raw["regime_sma_days"],
-        benchmark_ticker=raw["benchmark_ticker"],
-    )
-
-
 def _run_for_strategy_profile(
     *,
     profile: str,
@@ -287,19 +200,7 @@ def _run_for_strategy_profile(
 
 def _write_matrix_config(path: Path, strategy_profile: StrategyProfile) -> None:
     text = path.read_text(encoding="utf-8")
-    text = _replace_universe_section(text, UNIVERSES[strategy_profile.universe])
-    text = replace_top_k(text, strategy_profile.top_k)
-    text = replace_sector_limits(
-        text,
-        use_sector_limits=strategy_profile.use_sector_limits,
-        max_per_sector=strategy_profile.max_per_sector,
-    )
-    text = replace_max_turnover_cap(text, strategy_profile.max_turnover_cap)
-    text = replace_benchmark(text, strategy_profile.benchmark_ticker)
-    text = replace_regime_cash(text, strategy_profile)
-    text = _replace_cash_yield_annual(text, strategy_profile.cash_yield_annual)
-    text = _replace_regime_sma_days(text, strategy_profile.regime_sma_days)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(apply_strategy_profile_overlay(text, strategy_profile), encoding="utf-8")
 
 
 def build_run_report(

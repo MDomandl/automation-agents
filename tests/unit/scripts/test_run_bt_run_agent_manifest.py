@@ -11,8 +11,11 @@ from scripts.run_bt_run_agent import (
     build_backtest_profile_args,
     build_run_context,
     build_run_manifest,
+    load_strategy_profile_for_cli,
     resolve_profile_behavior,
+    write_strategy_profile_config_overlays,
 )
+from scripts.strategy_profiles import StrategyProfileError
 
 
 def test_run_profile_compare_modes() -> None:
@@ -191,3 +194,148 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
 
     assert decoded["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert decoded["runner"]["command"] == ["python", "-m", "aktien_oop.main"]
+
+
+def test_strategy_profile_name_loads_profile_config() -> None:
+    profile = load_strategy_profile_for_cli("balanced_v1")
+
+    assert profile.name == "balanced_v1"
+    assert profile.label == "Balanced v1"
+    assert profile.source_path == Path("configs/profiles/balanced_v1.toml")
+
+
+def test_strategy_profile_path_loads_same_profile_config() -> None:
+    by_name = load_strategy_profile_for_cli("balanced_v1")
+    by_path = load_strategy_profile_for_cli("configs/profiles/balanced_v1.toml")
+
+    assert by_path == by_name
+
+
+def test_invalid_strategy_profile_name_has_clear_error() -> None:
+    try:
+        load_strategy_profile_for_cli("does_not_exist_v1")
+    except StrategyProfileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected invalid strategy profile name to raise")
+
+    assert "Unknown strategy profile" in message
+    assert "balanced_v1" in message
+
+
+def test_invalid_strategy_profile_file_has_clear_error(tmp_path: Path) -> None:
+    profile_path = tmp_path / "broken.toml"
+    profile_path.write_text("profile_name = [", encoding="utf-8")
+
+    try:
+        load_strategy_profile_for_cli(str(profile_path))
+    except StrategyProfileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected invalid strategy profile file to raise")
+
+    assert "Invalid profile TOML" in message
+    assert str(profile_path) in message
+
+
+def test_strategy_profile_overlay_writes_run_specific_config_copies(tmp_path: Path) -> None:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=tmp_path / "aktien_oop" / "decisions" / "20260329_123456",
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+    )
+    base_config = "\n".join(
+        [
+            'benchmark_ticker = "SPY"',
+            "benchmark2 = \"SPY\"",
+            "top_k = 8",
+            "max_turnover_cap = 0.35",
+            "include_cash = true",
+            "cash_yield_annual = 0.02",
+            "",
+            "[universe]",
+            'name = "sp500_top100"',
+            'tickers_file = "aktien_oop/universes/sp500_tickers_top100.txt"',
+            'meta_file = "aktien_oop/universes/sp500_meta_top100.csv"',
+            "",
+            "[limits]",
+            "use_sector_limits = false",
+            "max_per_sector = 4",
+            "",
+            "[regime]",
+            "require_above_sma = false",
+            "regime_sma_days = 100",
+            'regime_below_action = "SELL"',
+        ]
+    )
+    context.backtest_config_path.parent.mkdir(parents=True)
+    context.runner_config_path.parent.mkdir(parents=True)
+    context.backtest_config_path.write_text(base_config, encoding="utf-8")
+    context.runner_config_path.write_text(base_config, encoding="utf-8")
+    profile = load_strategy_profile_for_cli("balanced_v1")
+
+    backtest_overlay, runner_overlay = write_strategy_profile_config_overlays(context, profile)
+
+    assert context.backtest_config_path.read_text(encoding="utf-8") == base_config
+    assert context.runner_config_path.read_text(encoding="utf-8") == base_config
+    for overlay in (backtest_overlay, runner_overlay):
+        updated = overlay.read_text(encoding="utf-8")
+        assert 'name = "sp500"' in updated
+        assert "top_k = 15" in updated
+        assert "use_sector_limits = true" in updated
+        assert "max_per_sector = 2" in updated
+        assert "max_turnover_cap = 0.20" in updated
+        assert 'benchmark_ticker = "SXR8.DE"' in updated
+        assert "include_cash = false" in updated
+        assert "cash_yield_annual = 0.00" in updated
+        assert "require_above_sma = true" in updated
+        assert "regime_sma_days = 200" in updated
+        assert 'regime_below_action = "HOLD"' in updated
+
+
+def test_build_run_manifest_includes_strategy_profile_metadata() -> None:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=Path("D:/ai_agents"),
+        aktien_oop_dir=Path("D:/ai_agents/aktien_oop"),
+        decisions_dir=Path("D:/ai_agents/aktien_oop/decisions"),
+        output_dir=Path("D:/ai_agents/automation_runs/2026-03-29_12-34-56_short"),
+        backtest_config_path=Path("D:/ai_agents/aktien_oop/backtest_config.toml"),
+        runner_config_path=Path("D:/ai_agents/aktien_oop/configs/runner_config.toml"),
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True, (), None, 0, 0.0, False, "", "", ""),
+        runner=StepResult(True, (), None, 0, 0.0, False, "", "", ""),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+    profile = load_strategy_profile_for_cli("balanced_v1")
+
+    manifest = build_run_manifest(context, result, strategy_profile=profile)
+
+    assert manifest["strategy_profile_name"] == "balanced_v1"
+    assert manifest["strategy_profile_label"] == "Balanced v1"
+    assert manifest["strategy_profile_file"] == "configs/profiles/balanced_v1.toml"
+    assert manifest["universe"] == "sp500"
+    assert manifest["top_k"] == 15
+    assert manifest["use_sector_limits"] is True
+    assert manifest["max_per_sector"] == 2
+    assert manifest["max_turnover_cap"] == 0.20
+    assert manifest["require_above_sma"] is True
+    assert manifest["regime_below_action"] == "HOLD"
+    assert manifest["include_cash"] is False
+    assert manifest["cash_yield_annual"] == 0.00
+    assert manifest["regime_sma_days"] == 200
+    assert manifest["benchmark_ticker"] == "SXR8.DE"
