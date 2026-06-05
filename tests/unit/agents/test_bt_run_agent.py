@@ -307,8 +307,101 @@ def test_bt_run_agent_runs_multiple_runner_points_from_current_bt_artifacts(tmp_
     ]
     assert result.runner.message == "Runner executed 2 compare point(s)"
     assert result.compare.matched is True
-    assert sum("seeded from backtest positions" in warning for warning in result.warnings) == 1
-    assert "[INFO] Runner previous-state seed skipped for subsequent compare points" in result.warnings
+    assert sum("seeded from backtest positions" in warning for warning in result.warnings) == 2
+    assert (
+        "[INFO] Runner previous-state seeded from backtest positions: "
+        "runner_as_of=2025-09-30, prev_as_of=2025-08-29, rows=1"
+    ) in result.warnings
+    assert (
+        "[INFO] Runner previous-state seeded from backtest positions: "
+        "runner_as_of=2025-10-08, prev_as_of=2025-09-30, rows=1"
+    ) in result.warnings
+    assert all("seed skipped for subsequent compare points" not in warning for warning in result.warnings)
+
+
+def test_bt_run_agent_reseeds_each_multi_compare_point_from_backtest_previous_snapshot(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    bt_save_dir = tmp_path / "bt_out"
+    runner_save_dir = tmp_path / "runner_out"
+    decisions_dir.mkdir()
+    bt_save_dir.mkdir()
+    runner_save_dir.mkdir()
+    for as_of in ("2025-08-29", "2025-09-30", "2025-10-08"):
+        (decisions_dir / f"BT_test_{as_of}.json").write_text(
+            f'{{"kind": "BT", "as_of": "{as_of}", "new_weights": {{"AAPL": 1.0}}}}',
+            encoding="utf-8",
+        )
+    (bt_save_dir / "bt_monthly_12x3_positions.csv").write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2025-08-29,BT_AUG,11.11",
+                "2025-09-30,BT_SEP,11.11",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner_positions_path = runner_save_dir / "portfolio_positions.csv"
+    runner_positions_path.write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2025-08-29,STALE_AUG,99.99",
+                "2025-09-30,STALE_SEP,99.99",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    bt_config_path.write_text(
+        "\n".join(
+            [
+                f'save_dir = "{bt_save_dir.as_posix()}"',
+                "top_k = 12",
+                "buffer_k = 3",
+                "[rebalance]",
+                'frequency = "monthly"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner_config_path.write_text(
+        f'save_dir = "{runner_save_dir.as_posix()}"\n',
+        encoding="utf-8",
+    )
+
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=FakeRunRunnerTool(),
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsToolSuccess(),
+        compare_config_tool=FakeCompareConfigTool(),
+        decisions_dir=decisions_dir,
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
+            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            compare_input=BtRunCompareInput(),
+            compare_mode=CompareMode.ALL,
+            compare_point_count=2,
+            seed_runner_previous_from_backtest=True,
+        )
+    )
+
+    persisted = runner_positions_path.read_text(encoding="utf-8")
+    assert "2025-08-29,BT_AUG,11.11" in persisted
+    assert "2025-09-30,BT_SEP,11.11" in persisted
+    assert "STALE_AUG" not in persisted
+    assert "STALE_SEP" not in persisted
+    assert sum("seeded from backtest positions" in warning for warning in result.warnings) == 2
 
 
 
@@ -578,7 +671,8 @@ def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp
     assert "2025-09-30,STX" in seeded
     assert "2025-10-08,GLW" not in seeded
     assert (
-        "[INFO] Runner previous-state seeded from backtest positions: prev_as_of=2025-09-30, rows=2"
+        "[INFO] Runner previous-state seeded from backtest positions: "
+        "runner_as_of=2025-10-08, prev_as_of=2025-09-30, rows=2"
         in result.warnings
     )
     assert fake_run_runner_tool.last_input.as_of_override == "2025-10-08"
@@ -645,5 +739,8 @@ def test_bt_run_agent_seed_skips_when_no_backtest_previous_snapshot_exists(tmp_p
     )
 
     assert result.seeded is False
-    assert result.message == "[INFO] Runner previous-state seed skipped: no BT snapshot before 2025-10-08"
+    assert result.message == (
+        "[INFO] Runner previous-state seed skipped: "
+        "runner_as_of=2025-10-08, no BT snapshot before runner_as_of"
+    )
     assert not runner_positions_path.exists()

@@ -131,14 +131,9 @@ class BtRunAgent:
         runner_process_results = []
         for index, runner_as_of in enumerate(runner_as_of_points):
             point_resolution = replace(as_of_resolution, runner_as_of_override=runner_as_of)
-            should_seed = agent_input.seed_runner_previous_from_backtest and index == 0
-            if should_seed:
+            if agent_input.seed_runner_previous_from_backtest:
                 seed_result = self._seed_runner_previous_from_backtest(agent_input, point_resolution)
                 warnings = warnings + (seed_result.message,)
-            elif agent_input.seed_runner_previous_from_backtest and len(runner_as_of_points) > 1 and index == 1:
-                warnings = warnings + (
-                    "[INFO] Runner previous-state seed skipped for subsequent compare points",
-                )
 
             runner_result = self._run_runner_tool.execute(
                 replace(
@@ -430,7 +425,10 @@ class BtRunAgent:
         if not previous_rows:
             return RunnerPreviousSeedResult(
                 seeded=False,
-                message=f"[INFO] Runner previous-state seed skipped: no BT snapshot before {runner_as_of}",
+                message=(
+                    "[INFO] Runner previous-state seed skipped: "
+                    f"runner_as_of={runner_as_of}, no BT snapshot before runner_as_of"
+                ),
             )
 
         previous_as_of = previous_rows[0]["as_of"]
@@ -448,7 +446,8 @@ class BtRunAgent:
             row_count=len(previous_rows),
             message=(
                 "[INFO] Runner previous-state seeded from backtest positions: "
-                f"prev_as_of={previous_as_of}, rows={len(previous_rows)}"
+                f"runner_as_of={runner_as_of}, prev_as_of={previous_as_of}, "
+                f"rows={len(previous_rows)}"
             ),
         )
 
