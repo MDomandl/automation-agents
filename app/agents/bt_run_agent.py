@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from pathlib import Path
 import csv
 import hashlib
 import json
 import tomllib
+from dataclasses import dataclass, replace
+from pathlib import Path
 
 from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
-from app.domain.bt_run.run_result import RunResult, StepResult, CompareResult
 from app.domain.bt_run.run_context import CompareMode
-from app.tools.compare.compare_all_runs_tool import CompareAllRunsToolInput, CompareAllRunsTool
+from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
+from app.tools.compare.compare_all_runs_tool import CompareAllRunsTool, CompareAllRunsToolInput
 from app.tools.compare.compare_config_tool import CompareConfigTool, CompareConfigToolInput
 from app.tools.compare.compare_latest_runs_tool import (
     CompareLatestRunsTool,
@@ -21,6 +21,7 @@ from app.tools.process.run_backtest_tool import (
     RunBacktestToolInput,
 )
 from app.tools.process.run_runner_tool import RunRunnerTool, RunRunnerToolInput
+
 
 @dataclass(frozen=True, slots=True)
 class BtRunCompareInput:
@@ -36,6 +37,10 @@ class BtRunAgentInput:
     compare_mode: CompareMode = CompareMode.LATEST
     seed_runner_previous_from_backtest: bool = False
     compare_point_count: int = 1
+    require_bt_bundles_for_compare: bool = False
+    explicit_time_window_start: str | None = None
+    explicit_time_window_end: str | None = None
+    explicit_phase_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +119,20 @@ class BtRunAgent:
                 warnings=warnings,
             )
 
+        if agent_input.require_bt_bundles_for_compare:
+            bt_as_ofs = self._load_bt_as_ofs_from_current_run()
+            if not bt_as_ofs:
+                message = self._missing_bt_bundles_message(agent_input)
+                return self._failed_run_result(
+                    backtest=self._step_result(backtest_result.process_result, success=True),
+                    runner=StepResult(
+                        success=False,
+                        message=message,
+                    ),
+                    compare_message=f"Compare not executed because {message}",
+                    warnings=warnings + (f"[ERROR] {message}",),
+                )
+
         runner_as_of_points = self._resolve_runner_as_of_points(agent_input, as_of_resolution)
         if not runner_as_of_points:
             return self._failed_run_result(
@@ -132,7 +151,9 @@ class BtRunAgent:
         for index, runner_as_of in enumerate(runner_as_of_points):
             point_resolution = replace(as_of_resolution, runner_as_of_override=runner_as_of)
             if agent_input.seed_runner_previous_from_backtest:
-                seed_result = self._seed_runner_previous_from_backtest(agent_input, point_resolution)
+                seed_result = self._seed_runner_previous_from_backtest(
+                    agent_input, point_resolution
+                )
                 warnings = warnings + (seed_result.message,)
 
             runner_result = self._run_runner_tool.execute(
@@ -200,7 +221,7 @@ class BtRunAgent:
                 )
                 warnings.extend(self._format_config_difference(diff) for diff in differences)
 
-        if as_of_resolution.runner_auto_aligned:
+        if as_of_resolution.runner_auto_aligned and not agent_input.require_bt_bundles_for_compare:
             warnings.append(
                 f"[INFO] Runner as_of auto-aligned to backtest as_of: "
                 f"{as_of_resolution.runner_as_of_override}"
@@ -258,6 +279,16 @@ class BtRunAgent:
                 as_ofs.add(as_of.strip())
 
         return sorted(as_ofs)
+
+    @staticmethod
+    def _missing_bt_bundles_message(agent_input: BtRunAgentInput) -> str:
+        start = agent_input.explicit_time_window_start or "open"
+        end = agent_input.explicit_time_window_end or "open"
+        phase = f" ({agent_input.explicit_phase_name})" if agent_input.explicit_phase_name else ""
+        return (
+            f"No BT decision bundles produced for explicit time window {start}..{end}"
+            f"{phase}; runner skipped to avoid stale/config as_of fallback."
+        )
 
     @classmethod
     def _compare_configured_universes(cls, agent_input: BtRunAgentInput) -> str | None:
@@ -371,7 +402,9 @@ class BtRunAgent:
             base_cwd=tool_input.cwd,
             config_path=tool_input.config_path,
         )
-        frequency = str(config.get("rebalance", {}).get("frequency", config.get("frequency", "monthly")))
+        frequency = str(
+            config.get("rebalance", {}).get("frequency", config.get("frequency", "monthly"))
+        )
         top_k = int(config.get("topk", {}).get("top_k", config.get("top_k")))
         buffer_k = int(config.get("topk", {}).get("buffer_k", config.get("buffer_k")))
         return save_dir / f"bt_{frequency}_{top_k}x{buffer_k}_positions.csv"
@@ -411,14 +444,20 @@ class BtRunAgent:
         if not bt_positions_path.exists():
             return RunnerPreviousSeedResult(
                 seeded=False,
-                message=f"[INFO] Runner previous-state seed skipped: BT positions not found: {bt_positions_path}",
+                message=(
+                    "[INFO] Runner previous-state seed skipped: "
+                    f"BT positions not found: {bt_positions_path}"
+                ),
             )
 
         bt_rows = cls._read_csv_rows(bt_positions_path)
         if not bt_rows:
             return RunnerPreviousSeedResult(
                 seeded=False,
-                message=f"[INFO] Runner previous-state seed skipped: BT positions empty: {bt_positions_path}",
+                message=(
+                    "[INFO] Runner previous-state seed skipped: "
+                    f"BT positions empty: {bt_positions_path}"
+                ),
             )
 
         previous_rows = cls._latest_rows_before(bt_rows, runner_as_of)
@@ -432,7 +471,9 @@ class BtRunAgent:
             )
 
         previous_as_of = previous_rows[0]["as_of"]
-        existing_rows = cls._read_csv_rows(runner_positions_path) if runner_positions_path.exists() else []
+        existing_rows = (
+            cls._read_csv_rows(runner_positions_path) if runner_positions_path.exists() else []
+        )
         existing_rows = [row for row in existing_rows if row.get("as_of") != previous_as_of]
         combined_rows = cls._dedupe_position_rows(existing_rows + previous_rows)
         fieldnames = cls._merged_fieldnames(existing_rows + previous_rows)
@@ -454,15 +495,15 @@ class BtRunAgent:
     @staticmethod
     def _read_csv_rows(path: Path) -> list[dict[str, str]]:
         with path.open("r", encoding="utf-8", newline="") as file_obj:
-            lines = (line for line in file_obj if line.strip() and not line.lstrip().startswith("#"))
+            lines = (
+                line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
+            )
             return list(csv.DictReader(lines))
 
     @classmethod
     def _latest_rows_before(cls, rows: list[dict[str, str]], as_of: str) -> list[dict[str, str]]:
         candidates = [
-            row
-            for row in rows
-            if row.get("as_of") and row.get("ticker") and row["as_of"] < as_of
+            row for row in rows if row.get("as_of") and row.get("ticker") and row["as_of"] < as_of
         ]
         if not candidates:
             return []
@@ -533,8 +574,12 @@ class BtRunAgent:
 
     @staticmethod
     def _build_config_drift_message(differences: tuple[ConfigDifference, ...]) -> str:
-        critical_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.CRITICAL)
-        warning_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.WARNING)
+        critical_count = sum(
+            1 for diff in differences if diff.severity == ConfigDiffSeverity.CRITICAL
+        )
+        warning_count = sum(
+            1 for diff in differences if diff.severity == ConfigDiffSeverity.WARNING
+        )
         info_count = sum(1 for diff in differences if diff.severity == ConfigDiffSeverity.INFO)
         return (
             f"{len(differences)} differences found "
@@ -570,8 +615,11 @@ class BtRunAgent:
         )
         return CompareResult(
             success=response.success,
-            matched=response.success and response.matched_count > 0 and response.mismatched_count == 0,
-            message=response.message or f"{response.matched_count} matched, {response.mismatched_count} mismatched",
+            matched=response.success
+            and response.matched_count > 0
+            and response.mismatched_count == 0,
+            message=response.message
+            or f"{response.matched_count} matched, {response.mismatched_count} mismatched",
         )
 
     @staticmethod
@@ -587,7 +635,9 @@ class BtRunAgent:
             command=last.command,
             cwd=last.cwd,
             returncode=last.returncode,
-            duration_seconds=sum(float(result.duration_seconds or 0.0) for result in process_results),
+            duration_seconds=sum(
+                float(result.duration_seconds or 0.0) for result in process_results
+            ),
             timed_out=any(result.timed_out for result in process_results),
             stdout=stdout,
             stderr=stderr,

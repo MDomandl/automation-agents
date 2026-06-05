@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgentInput, BtRunCompareInput
 from app.bootstrap.bt_run_container import build_bt_run_agent
-from app.domain.bt_run.run_context import RunContext, CompareMode, RunProfile
+from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
 from app.domain.bt_run.run_result import RunResult, StepResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
@@ -26,8 +26,10 @@ from scripts.strategy_profiles import (
     write_strategy_profile_overlay,
 )
 
-
-OUTPUT_PATH_RE = re.compile(r"^(?P<label>Equity|Positions|Trades|Bench|Summary):\s*(?P<path>.+?)\s*$", re.MULTILINE)
+OUTPUT_PATH_RE = re.compile(
+    r"^(?P<label>Equity|Positions|Trades|Bench|Summary):\s*(?P<path>.+?)\s*$",
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +56,10 @@ def resolve_profile_behavior(profile: RunProfile) -> ProfileBehavior:
             runner_extra_args=("--dump-selection", "--dump-weights"),
             backtest_lookback_months=18,
             compare_point_count=1,
-            description="focused debug run: all compare, 18-month backtest scope, runner selection/weight dumps",
+            description=(
+                "focused debug run: all compare, 18-month backtest scope, "
+                "runner selection/weight dumps"
+            ),
         )
 
     if profile == RunProfile.MEDIUM:
@@ -62,14 +67,19 @@ def resolve_profile_behavior(profile: RunProfile) -> ProfileBehavior:
             compare_mode=CompareMode.ALL,
             backtest_lookback_months=30,
             compare_point_count=3,
-            description="development run: all compare, 30-month backtest scope, last 3 BT as_of points",
+            description=(
+                "development run: all compare, 30-month backtest scope, last 3 BT as_of points"
+            ),
         )
 
     return ProfileBehavior(
         compare_mode=CompareMode.ALL,
         backtest_lookback_months=None,
         compare_point_count=6,
-        description="deep validation run: all compare, full configured backtest scope, last 6 BT as_of points",
+        description=(
+            "deep validation run: all compare, full configured backtest scope, "
+            "last 6 BT as_of points"
+        ),
     )
 
 
@@ -77,16 +87,54 @@ def build_backtest_profile_args(
     behavior: ProfileBehavior,
     *,
     backtest_config_path: Path,
+    start_override: str | None = None,
+    end_override: str | None = None,
 ) -> tuple[str, ...]:
-    if behavior.backtest_lookback_months is None:
-        return ()
+    args: list[str] = []
 
-    as_of = _load_backtest_as_of(backtest_config_path)
-    if as_of is None:
-        return ()
+    if start_override is not None:
+        args.extend(("--start", start_override))
+    elif behavior.backtest_lookback_months is not None:
+        as_of = _load_backtest_as_of(backtest_config_path)
+        if as_of is not None:
+            start = _subtract_months(as_of, behavior.backtest_lookback_months)
+            args.extend(("--start", start.isoformat()))
 
-    start = _subtract_months(as_of, behavior.backtest_lookback_months)
-    return ("--start", start.isoformat())
+    if end_override is not None:
+        args.extend(("--end", end_override))
+
+    return tuple(args)
+
+
+def build_backtest_command(
+    *,
+    config_path: Path,
+    decisions_dir: Path,
+    profile_args: tuple[str, ...],
+) -> tuple[str, ...]:
+    return (
+        sys.executable,
+        "-m",
+        "aktien_oop.backtest",
+        "--config",
+        str(config_path),
+        "--decisions-dir",
+        str(decisions_dir),
+    ) + profile_args
+
+
+def extract_backtest_arg(
+    args: tuple[str, ...],
+    flag: str,
+) -> str | None:
+    try:
+        index = args.index(flag)
+    except ValueError:
+        return None
+    value_index = index + 1
+    if value_index >= len(args):
+        return None
+    return args[value_index]
 
 
 def _load_backtest_as_of(config_path: Path) -> date | None:
@@ -115,7 +163,9 @@ def _subtract_months(value: date, months: int) -> date:
 
 
 def build_run_context(profile: RunProfile) -> RunContext:
-    ai_agents_dir = Path(r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents")
+    ai_agents_dir = Path(
+        r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents"
+    )
     aktien_oop_dir = ai_agents_dir / "aktien_oop"
 
     now = datetime.now()
@@ -169,12 +219,24 @@ def build_run_manifest(
     strategy_profile: StrategyProfile | None = None,
     effective_backtest_config_path: Path | None = None,
     effective_runner_config_path: Path | None = None,
+    phase_name: str | None = None,
+    phase_start: str | None = None,
+    phase_end: str | None = None,
+    explicit_time_window: bool = False,
+    effective_backtest_start: str | None = None,
+    effective_backtest_end: str | None = None,
 ) -> dict:
     manifest = {
         "run_id": context.run_id,
         "run_label": context.run_label,
         "run_timestamp": context.run_timestamp.isoformat(),
         "profile": context.profile.value,
+        "phase_name": phase_name,
+        "phase_start": phase_start,
+        "phase_end": phase_end,
+        "explicit_time_window": explicit_time_window,
+        "effective_backtest_start": effective_backtest_start,
+        "effective_backtest_end": effective_backtest_end,
         "profile_behavior": resolve_profile_behavior(context.profile).description,
         "compare_point_count": resolve_profile_behavior(context.profile).compare_point_count,
         "compare_mode": context.compare_mode.value,
@@ -182,8 +244,12 @@ def build_run_manifest(
         "decisions_dir": str(context.decisions_dir),
         "backtest_config_path": str(context.backtest_config_path),
         "runner_config_path": str(context.runner_config_path),
-        "effective_backtest_config_path": str(effective_backtest_config_path or context.backtest_config_path),
-        "effective_runner_config_path": str(effective_runner_config_path or context.runner_config_path),
+        "effective_backtest_config_path": str(
+            effective_backtest_config_path or context.backtest_config_path
+        ),
+        "effective_runner_config_path": str(
+            effective_runner_config_path or context.runner_config_path
+        ),
         "success": result.success,
         "warnings": list(result.warnings),
         "backtest": _step_result_to_dict(result.backtest),
@@ -245,7 +311,7 @@ def copy_referenced_backtest_artifacts(context: RunContext, result: RunResult) -
     return copied
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--profile",
@@ -259,7 +325,29 @@ def parse_args() -> argparse.Namespace:
             "or a path to a .toml profile file."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--start",
+        type=_parse_iso_date,
+        help="Explicit backtest start date YYYY-MM-DD. Overrides profile lookback start.",
+    )
+    parser.add_argument(
+        "--end",
+        type=_parse_iso_date,
+        help="Explicit backtest end date YYYY-MM-DD.",
+    )
+    parser.add_argument(
+        "--phase-name",
+        help="Optional descriptive market phase name for reports and manifest metadata.",
+    )
+    return parser.parse_args(argv)
+
+
+def _parse_iso_date(value: str) -> str:
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD date, got {value!r}") from exc
+    return value
 
 
 def load_strategy_profile_for_cli(value: str) -> StrategyProfile:
@@ -310,11 +398,19 @@ def main() -> None:
     backtest_profile_args = build_backtest_profile_args(
         profile_behavior,
         backtest_config_path=effective_backtest_config_path,
+        start_override=args.start,
+        end_override=args.end,
     )
+    effective_backtest_start = extract_backtest_arg(backtest_profile_args, "--start")
+    effective_backtest_end = extract_backtest_arg(backtest_profile_args, "--end")
+    explicit_time_window = bool(args.start or args.end or args.phase_name)
 
     print("run_id:", context.run_id)
     print("run_label:", context.run_label)
     print("profile:", context.profile)
+    print("phase_name:", args.phase_name)
+    print("phase_start:", args.start)
+    print("phase_end:", args.end)
     print("compare_mode:", context.compare_mode)
     print("profile_behavior:", profile_behavior.description)
     print("output_dir:", context.output_dir)
@@ -335,15 +431,11 @@ def main() -> None:
     result = agent.execute(
         BtRunAgentInput(
             backtest_input=RunBacktestToolInput(
-                command=(
-                    sys.executable,
-                    "-m",
-                    "aktien_oop.backtest",
-                    "--config",
-                    str(effective_backtest_config_path),
-                    "--decisions-dir",
-                    str(context.decisions_dir),
-                ) + backtest_profile_args,
+                command=build_backtest_command(
+                    config_path=effective_backtest_config_path,
+                    decisions_dir=context.decisions_dir,
+                    profile_args=backtest_profile_args,
+                ),
                 cwd=context.ai_agents_dir,
                 config_path=effective_backtest_config_path,
             ),
@@ -356,7 +448,8 @@ def main() -> None:
                     str(effective_runner_config_path),
                     "--decisions-dir",
                     str(context.decisions_dir),
-                ) + profile_behavior.runner_extra_args,
+                )
+                + profile_behavior.runner_extra_args,
                 cwd=context.ai_agents_dir,
                 config_path=effective_runner_config_path,
             ),
@@ -367,6 +460,10 @@ def main() -> None:
             compare_mode=context.compare_mode,
             seed_runner_previous_from_backtest=True,
             compare_point_count=profile_behavior.compare_point_count,
+            require_bt_bundles_for_compare=explicit_time_window,
+            explicit_time_window_start=args.start,
+            explicit_time_window_end=args.end,
+            explicit_phase_name=args.phase_name,
         )
     )
     result = replace(
@@ -386,16 +483,31 @@ def main() -> None:
         ),
     )
 
-    (context.output_dir / "backtest_stdout.txt").write_text(result.backtest.stdout, encoding="utf-8")
-    (context.output_dir / "backtest_stderr.txt").write_text(result.backtest.stderr, encoding="utf-8")
+    (context.output_dir / "backtest_stdout.txt").write_text(
+        result.backtest.stdout,
+        encoding="utf-8",
+    )
+    (context.output_dir / "backtest_stderr.txt").write_text(
+        result.backtest.stderr,
+        encoding="utf-8",
+    )
     (context.output_dir / "runner_stdout.txt").write_text(result.runner.stdout, encoding="utf-8")
     (context.output_dir / "runner_stderr.txt").write_text(result.runner.stderr, encoding="utf-8")
     artifact_paths = copy_referenced_backtest_artifacts(context, result)
     warnings_text = "\n".join(result.warnings) if result.warnings else "None"
+    effective_start_text = effective_backtest_start if effective_backtest_start else "None"
+    effective_end_text = effective_backtest_end if effective_backtest_end else "None"
+    regime_action = strategy_profile.regime_below_action if strategy_profile else "None"
+    profile_args_text = " ".join(backtest_profile_args) if backtest_profile_args else "None"
 
     summary_text = (
         f"run_id: {context.run_id}\n"
         f"profile: {context.profile.value}\n"
+        f"phase_name: {args.phase_name if args.phase_name else 'None'}\n"
+        f"phase_start: {args.start if args.start else 'None'}\n"
+        f"phase_end: {args.end if args.end else 'None'}\n"
+        f"effective_backtest_start: {effective_start_text}\n"
+        f"effective_backtest_end: {effective_end_text}\n"
         f"profile_behavior: {profile_behavior.description}\n"
         f"strategy_profile_name: {strategy_profile.name if strategy_profile else 'None'}\n"
         f"strategy_profile_label: {strategy_profile.label if strategy_profile else 'None'}\n"
@@ -407,12 +519,12 @@ def main() -> None:
         f"max_per_sector: {strategy_profile.max_per_sector if strategy_profile else 'None'}\n"
         f"max_turnover_cap: {strategy_profile.max_turnover_cap if strategy_profile else 'None'}\n"
         f"require_above_sma: {strategy_profile.require_above_sma if strategy_profile else 'None'}\n"
-        f"regime_below_action: {strategy_profile.regime_below_action if strategy_profile else 'None'}\n"
+        f"regime_below_action: {regime_action}\n"
         f"include_cash: {strategy_profile.include_cash if strategy_profile else 'None'}\n"
         f"cash_yield_annual: {strategy_profile.cash_yield_annual if strategy_profile else 'None'}\n"
         f"regime_sma_days: {strategy_profile.regime_sma_days if strategy_profile else 'None'}\n"
         f"benchmark_ticker: {strategy_profile.benchmark_ticker if strategy_profile else 'None'}\n"
-        f"backtest_profile_args: {' '.join(backtest_profile_args) if backtest_profile_args else 'None'}\n"
+        f"backtest_profile_args: {profile_args_text}\n"
         f"compare_point_count: {profile_behavior.compare_point_count}\n"
         f"compare_mode: {context.compare_mode.value}\n"
         f"success: {result.success}\n"
@@ -449,6 +561,12 @@ def main() -> None:
         strategy_profile=strategy_profile,
         effective_backtest_config_path=effective_backtest_config_path,
         effective_runner_config_path=effective_runner_config_path,
+        phase_name=args.phase_name,
+        phase_start=args.start,
+        phase_end=args.end,
+        explicit_time_window=explicit_time_window,
+        effective_backtest_start=effective_backtest_start,
+        effective_backtest_end=effective_backtest_end,
     )
     manifest["artifacts"] = artifact_paths
     (context.output_dir / "run_manifest.json").write_text(

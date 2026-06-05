@@ -8,10 +8,12 @@ from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
 from scripts.run_bt_run_agent import (
+    build_backtest_command,
     build_backtest_profile_args,
     build_run_context,
     build_run_manifest,
     load_strategy_profile_for_cli,
+    parse_args,
     resolve_profile_behavior,
     write_strategy_profile_config_overlays,
 )
@@ -53,6 +55,74 @@ def test_backtest_profile_args_apply_limited_scope(tmp_path: Path) -> None:
     )
 
     assert args == ("--start", "2024-04-08")
+
+
+def test_parse_args_accepts_phase_window_options() -> None:
+    args = parse_args(
+        [
+            "--profile",
+            "medium",
+            "--strategy-profile",
+            "balanced_v1",
+            "--start",
+            "2022-01-01",
+            "--end",
+            "2022-12-31",
+            "--phase-name",
+            "bear_market_2022",
+        ]
+    )
+
+    assert args.profile == "medium"
+    assert args.strategy_profile == "balanced_v1"
+    assert args.start == "2022-01-01"
+    assert args.end == "2022-12-31"
+    assert args.phase_name == "bear_market_2022"
+
+
+def test_backtest_profile_args_pass_explicit_start_and_end(tmp_path: Path) -> None:
+    config_path = tmp_path / "bt.toml"
+    config_path.write_text('as_of = "2025-10-08"\n', encoding="utf-8")
+
+    args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.MEDIUM),
+        backtest_config_path=config_path,
+        start_override="2022-01-01",
+        end_override="2022-12-31",
+    )
+
+    assert args == ("--start", "2022-01-01", "--end", "2022-12-31")
+
+
+def test_backtest_profile_args_explicit_start_overrides_profile_lookback(tmp_path: Path) -> None:
+    config_path = tmp_path / "bt.toml"
+    config_path.write_text('as_of = "2025-10-08"\n', encoding="utf-8")
+
+    args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.MEDIUM),
+        backtest_config_path=config_path,
+        start_override="2022-01-01",
+    )
+
+    assert args == ("--start", "2022-01-01")
+    assert "2023-04-08" not in args
+
+
+def test_build_backtest_command_includes_phase_window_args(tmp_path: Path) -> None:
+    config_path = tmp_path / "bt.toml"
+    decisions_dir = tmp_path / "decisions"
+
+    command = build_backtest_command(
+        config_path=config_path,
+        decisions_dir=decisions_dir,
+        profile_args=("--start", "2022-01-01", "--end", "2022-12-31"),
+    )
+
+    assert command[-4:] == ("--start", "2022-01-01", "--end", "2022-12-31")
+    assert "--config" in command
+    assert str(config_path) in command
+    assert "--decisions-dir" in command
+    assert str(decisions_dir) in command
 
 
 def test_backtest_profile_args_keep_full_scope_for_long(tmp_path: Path) -> None:
@@ -99,10 +169,30 @@ def test_compare_all_uses_only_current_run_decisions_directory(tmp_path: Path) -
     old_run_dir.mkdir(parents=True)
     current_run_dir.mkdir(parents=True)
 
-    _write_decision_bundle(old_run_dir / "BT_old_2025-01-31.json", "BT", "2025-01-31", {"AAPL": 1.0})
-    _write_decision_bundle(old_run_dir / "RUN_old_2025-01-31.json", "RUN", "2025-01-31", {"MSFT": 1.0})
-    _write_decision_bundle(current_run_dir / "BT_current_2025-01-31.json", "BT", "2025-01-31", {"AAPL": 1.0})
-    _write_decision_bundle(current_run_dir / "RUN_current_2025-01-31.json", "RUN", "2025-01-31", {"AAPL": 1.0})
+    _write_decision_bundle(
+        old_run_dir / "BT_old_2025-01-31.json",
+        "BT",
+        "2025-01-31",
+        {"AAPL": 1.0},
+    )
+    _write_decision_bundle(
+        old_run_dir / "RUN_old_2025-01-31.json",
+        "RUN",
+        "2025-01-31",
+        {"MSFT": 1.0},
+    )
+    _write_decision_bundle(
+        current_run_dir / "BT_current_2025-01-31.json",
+        "BT",
+        "2025-01-31",
+        {"AAPL": 1.0},
+    )
+    _write_decision_bundle(
+        current_run_dir / "RUN_current_2025-01-31.json",
+        "RUN",
+        "2025-01-31",
+        {"AAPL": 1.0},
+    )
 
     response = CompareAllRunsUseCase(FileDecisionBundleStore(current_run_dir)).execute(
         CompareAllRunsRequest()
@@ -170,7 +260,9 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
 
     manifest = build_run_manifest(context, result)
 
-    assert manifest["profile_behavior"] == "fast smoke test: latest compare, 18-month backtest scope"
+    assert (
+        manifest["profile_behavior"] == "fast smoke test: latest compare, 18-month backtest scope"
+    )
     assert manifest["compare_point_count"] == 1
     assert manifest["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert manifest["backtest"]["returncode"] == 0
@@ -194,6 +286,46 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
 
     assert decoded["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert decoded["runner"]["command"] == ["python", "-m", "aktien_oop.main"]
+
+
+def test_build_run_manifest_includes_phase_window_metadata() -> None:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_medium",
+        profile=RunProfile.MEDIUM,
+        compare_mode=CompareMode.ALL,
+        ai_agents_dir=Path("D:/ai_agents"),
+        aktien_oop_dir=Path("D:/ai_agents/aktien_oop"),
+        decisions_dir=Path("D:/ai_agents/aktien_oop/decisions"),
+        output_dir=Path("D:/ai_agents/automation_runs/2026-03-29_12-34-56_medium"),
+        backtest_config_path=Path("D:/ai_agents/aktien_oop/backtest_config.toml"),
+        runner_config_path=Path("D:/ai_agents/aktien_oop/configs/runner_config.toml"),
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True, (), None, 0, 0.0, False, "", "", ""),
+        runner=StepResult(True, (), None, 0, 0.0, False, "", "", ""),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    manifest = build_run_manifest(
+        context,
+        result,
+        phase_name="bear_market_2022",
+        phase_start="2022-01-01",
+        phase_end="2022-12-31",
+        explicit_time_window=True,
+        effective_backtest_start="2022-01-01",
+        effective_backtest_end="2022-12-31",
+    )
+
+    assert manifest["phase_name"] == "bear_market_2022"
+    assert manifest["phase_start"] == "2022-01-01"
+    assert manifest["phase_end"] == "2022-12-31"
+    assert manifest["explicit_time_window"] is True
+    assert manifest["effective_backtest_start"] == "2022-01-01"
+    assert manifest["effective_backtest_end"] == "2022-12-31"
 
 
 def test_strategy_profile_name_loads_profile_config() -> None:
@@ -255,7 +387,7 @@ def test_strategy_profile_overlay_writes_run_specific_config_copies(tmp_path: Pa
     base_config = "\n".join(
         [
             'benchmark_ticker = "SPY"',
-            "benchmark2 = \"SPY\"",
+            'benchmark2 = "SPY"',
             "top_k = 8",
             "max_turnover_cap = 0.35",
             "include_cash = true",
@@ -299,6 +431,67 @@ def test_strategy_profile_overlay_writes_run_specific_config_copies(tmp_path: Pa
         assert "require_above_sma = true" in updated
         assert "regime_sma_days = 200" in updated
         assert 'regime_below_action = "HOLD"' in updated
+
+
+def test_strategy_profile_overlay_works_with_start_end_command_args(tmp_path: Path) -> None:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_medium",
+        profile=RunProfile.MEDIUM,
+        compare_mode=CompareMode.ALL,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=tmp_path / "aktien_oop" / "decisions" / "20260329_123456",
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_medium",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+    )
+    base_config = "\n".join(
+        [
+            'as_of = "2025-10-08"',
+            'benchmark_ticker = "SPY"',
+            "top_k = 8",
+            "max_turnover_cap = 0.35",
+            "",
+            "[universe]",
+            'name = "sp500_top100"',
+            'tickers_file = "aktien_oop/universes/sp500_tickers_top100.txt"',
+            'meta_file = "aktien_oop/universes/sp500_meta_top100.csv"',
+            "",
+            "[limits]",
+            "use_sector_limits = false",
+            "max_per_sector = 4",
+            "",
+            "[regime]",
+            "require_above_sma = false",
+            "regime_sma_days = 100",
+            'regime_below_action = "SELL"',
+        ]
+    )
+    context.backtest_config_path.parent.mkdir(parents=True)
+    context.runner_config_path.parent.mkdir(parents=True)
+    context.backtest_config_path.write_text(base_config, encoding="utf-8")
+    context.runner_config_path.write_text(base_config, encoding="utf-8")
+    profile = load_strategy_profile_for_cli("balanced_v1")
+
+    backtest_overlay, _ = write_strategy_profile_config_overlays(context, profile)
+    profile_args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.MEDIUM),
+        backtest_config_path=backtest_overlay,
+        start_override="2022-01-01",
+        end_override="2022-12-31",
+    )
+    command = build_backtest_command(
+        config_path=backtest_overlay,
+        decisions_dir=context.decisions_dir,
+        profile_args=profile_args,
+    )
+
+    assert context.backtest_config_path.read_text(encoding="utf-8") == base_config
+    assert "--config" in command
+    assert str(backtest_overlay) in command
+    assert command[-4:] == ("--start", "2022-01-01", "--end", "2022-12-31")
 
 
 def test_build_run_manifest_includes_strategy_profile_metadata() -> None:

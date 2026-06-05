@@ -1,15 +1,14 @@
 from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput, BtRunCompareInput
-from app.application.bt_run.use_cases import CompareConfigUseCase
 from app.application.bt_run.dto import CompareAllRunsResponse, CompareLatestRunsResponse
+from app.application.bt_run.use_cases import CompareConfigUseCase
 from app.domain.bt_run.config_compare import ConfigDifference, ConfigDiffSeverity
 from app.domain.bt_run.models import ComparisonSummary
 from app.domain.bt_run.run_context import CompareMode
 from app.infrastructure.process.subprocess_runner import ProcessResult
 from app.infrastructure.storage.config_loader import ConfigLoader
-from app.tools.compare.compare_config_tool import CompareConfigToolResult
-from app.tools.compare.compare_config_tool import CompareConfigTool
+from app.tools.compare.compare_config_tool import CompareConfigTool, CompareConfigToolResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
 
@@ -91,7 +90,11 @@ class FakeCompareAllRunsToolNoPairs:
 
 
 class FakeCompareAllRunsToolSuccess:
+    def __init__(self):
+        self.called = False
+
     def execute(self, tool_input):
+        self.called = True
         return CompareAllRunsResponse(
             success=True,
             summaries=[
@@ -164,8 +167,12 @@ def test_bt_run_agent_executes_full_flow_successfully() -> None:
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=Path("bt.yaml")),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=Path("runner.yaml")),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=Path("bt.yaml")
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=Path("runner.yaml")
+            ),
             compare_input=BtRunCompareInput(),
         )
     )
@@ -198,8 +205,12 @@ def test_bt_run_agent_uses_compare_latest_mode() -> None:
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=Path("bt.yaml")),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=Path("runner.toml")),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=Path("bt.yaml")
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=Path("runner.toml")
+            ),
             compare_input=BtRunCompareInput(),
             compare_mode=CompareMode.LATEST,
         )
@@ -224,8 +235,12 @@ def test_bt_run_agent_all_compare_does_not_match_when_no_pairs_exist() -> None:
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=Path("bt.yaml")),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=Path("runner.toml")),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=Path("bt.yaml")
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=Path("runner.toml")
+            ),
             compare_input=BtRunCompareInput(),
             compare_mode=CompareMode.ALL,
         )
@@ -235,6 +250,98 @@ def test_bt_run_agent_all_compare_does_not_match_when_no_pairs_exist() -> None:
     assert result.compare.success is False
     assert result.compare.matched is False
     assert result.compare.message == "No BT/RUN pairs found"
+
+
+def test_bt_run_agent_explicit_time_window_without_bt_bundles_skips_runner_and_compare(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-10-08")
+    write_config(runner_config_path)
+    fake_runner = FakeRunRunnerTool()
+    latest_tool = FakeCompareLatestRunsTool()
+    all_tool = FakeCompareAllRunsTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_runner,
+        compare_latest_runs_tool=latest_tool,
+        compare_all_runs_tool=all_tool,
+        compare_config_tool=FakeCompareConfigTool(),
+        decisions_dir=decisions_dir,
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
+            compare_input=BtRunCompareInput(),
+            require_bt_bundles_for_compare=True,
+            explicit_time_window_start="2022-01-01",
+            explicit_time_window_end="2022-12-31",
+            explicit_phase_name="bear_market_2022",
+        )
+    )
+
+    assert result.success is False
+    assert result.backtest.success is True
+    assert result.runner.success is False
+    assert result.runner.command == ()
+    assert result.compare.success is False
+    assert result.compare.matched is None
+    assert fake_runner.inputs == []
+    assert latest_tool.called is False
+    assert all_tool.called is False
+    assert not any("Runner as_of auto-aligned" in warning for warning in result.warnings)
+    assert not any("Runner compare points" in warning for warning in result.warnings)
+    assert (
+        "[ERROR] No BT decision bundles produced for explicit time window "
+        "2022-01-01..2022-12-31 (bear_market_2022); runner skipped to avoid "
+        "stale/config as_of fallback."
+    ) in result.warnings
+
+
+def test_bt_run_agent_standard_run_without_bt_bundles_keeps_config_as_of_fallback(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-10-08")
+    write_config(runner_config_path)
+    fake_runner = FakeRunRunnerTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_runner,
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=FakeCompareAllRunsTool(),
+        compare_config_tool=FakeCompareConfigTool(),
+        decisions_dir=decisions_dir,
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
+            compare_input=BtRunCompareInput(),
+        )
+    )
+
+    assert result.success is True
+    assert fake_runner.last_input.as_of_override == "2025-10-08"
+    assert "[INFO] Runner as_of auto-aligned to backtest as_of: 2025-10-08" in result.warnings
+    assert "[INFO] Runner compare points: count=1, as_of=2025-10-08" in result.warnings
 
 
 def test_bt_run_agent_runs_multiple_runner_points_from_current_bt_artifacts(tmp_path: Path) -> None:
@@ -292,8 +399,12 @@ def test_bt_run_agent_runs_multiple_runner_points_from_current_bt_artifacts(tmp_
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
             compare_input=BtRunCompareInput(),
             compare_mode=CompareMode.ALL,
             compare_point_count=2,
@@ -316,7 +427,93 @@ def test_bt_run_agent_runs_multiple_runner_points_from_current_bt_artifacts(tmp_
         "[INFO] Runner previous-state seeded from backtest positions: "
         "runner_as_of=2025-10-08, prev_as_of=2025-09-30, rows=1"
     ) in result.warnings
-    assert all("seed skipped for subsequent compare points" not in warning for warning in result.warnings)
+    assert all(
+        "seed skipped for subsequent compare points" not in warning for warning in result.warnings
+    )
+
+
+def test_bt_run_agent_explicit_time_window_with_bt_bundles_keeps_runner_compare_points(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    bt_save_dir = tmp_path / "bt_out"
+    runner_save_dir = tmp_path / "runner_out"
+    decisions_dir.mkdir()
+    bt_save_dir.mkdir()
+    runner_save_dir.mkdir()
+    for as_of in ("2022-10-31", "2022-11-30", "2022-12-30"):
+        (decisions_dir / f"BT_test_{as_of}.json").write_text(
+            f'{{"kind": "BT", "as_of": "{as_of}", "new_weights": {{"AAPL": 1.0}}}}',
+            encoding="utf-8",
+        )
+    (bt_save_dir / "bt_monthly_12x3_positions.csv").write_text(
+        "\n".join(
+            [
+                "as_of,ticker,allocation_pct",
+                "2022-10-31,MSFT,11.11",
+                "2022-11-30,AAPL,11.11",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    bt_config_path.write_text(
+        "\n".join(
+            [
+                'as_of = "2025-10-08"',
+                f'save_dir = "{bt_save_dir.as_posix()}"',
+                "top_k = 12",
+                "buffer_k = 3",
+                "[rebalance]",
+                'frequency = "monthly"',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner_config_path.write_text(
+        f'save_dir = "{runner_save_dir.as_posix()}"\n',
+        encoding="utf-8",
+    )
+    fake_runner = FakeRunRunnerTool()
+    all_tool = FakeCompareAllRunsToolSuccess()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_runner,
+        compare_latest_runs_tool=FakeCompareLatestRunsTool(),
+        compare_all_runs_tool=all_tool,
+        compare_config_tool=FakeCompareConfigTool(),
+        decisions_dir=decisions_dir,
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
+            compare_input=BtRunCompareInput(),
+            compare_mode=CompareMode.ALL,
+            compare_point_count=2,
+            seed_runner_previous_from_backtest=True,
+            require_bt_bundles_for_compare=True,
+            explicit_time_window_start="2022-01-01",
+            explicit_time_window_end="2022-12-31",
+        )
+    )
+
+    assert [tool_input.as_of_override for tool_input in fake_runner.inputs] == [
+        "2022-11-30",
+        "2022-12-30",
+    ]
+    assert all_tool.called is True
+    assert result.compare.matched is True
+    assert "[INFO] Runner compare points: count=2, as_of=2022-11-30,2022-12-30" in result.warnings
+    assert not any("2025-10-08" in warning for warning in result.warnings)
 
 
 def test_bt_run_agent_reseeds_each_multi_compare_point_from_backtest_previous_snapshot(
@@ -387,8 +584,12 @@ def test_bt_run_agent_reseeds_each_multi_compare_point_from_backtest_previous_sn
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
             compare_input=BtRunCompareInput(),
             compare_mode=CompareMode.ALL,
             compare_point_count=2,
@@ -402,7 +603,6 @@ def test_bt_run_agent_reseeds_each_multi_compare_point_from_backtest_previous_sn
     assert "STALE_AUG" not in persisted
     assert "STALE_SEP" not in persisted
     assert sum("seeded from backtest positions" in warning for warning in result.warnings) == 2
-
 
 
 def test_bt_run_agent_adds_config_drift_warnings_to_run_result(capsys) -> None:
@@ -444,7 +644,9 @@ def test_bt_run_agent_adds_config_drift_warnings_to_run_result(capsys) -> None:
     assert fake_run_runner_tool.last_input.as_of_override is None
 
 
-def test_bt_run_agent_auto_aligns_runner_as_of_when_runner_config_is_missing(tmp_path: Path) -> None:
+def test_bt_run_agent_auto_aligns_runner_as_of_when_runner_config_is_missing(
+    tmp_path: Path,
+) -> None:
     bt_config_path = tmp_path / "bt.toml"
     runner_config_path = tmp_path / "runner.toml"
     write_config(bt_config_path, as_of="2025-03-31")
@@ -514,7 +716,9 @@ def test_bt_run_agent_prefers_explicit_runner_as_of(tmp_path: Path) -> None:
     assert "as_of" in result.warnings[1]
 
 
-def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(tmp_path: Path) -> None:
+def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(
+    tmp_path: Path,
+) -> None:
     bt_config_path = tmp_path / "bt.toml"
     runner_config_path = tmp_path / "runner.toml"
     write_config(bt_config_path, as_of="2025-03-31", period="800d")
@@ -542,7 +746,10 @@ def test_bt_run_agent_still_reports_config_drift_when_both_as_of_values_differ(t
         )
     )
 
-    assert result.warnings[0] == "[WARN] Config drift detected: 1 differences found (1 critical, 0 warning, 0 info)"
+    assert (
+        result.warnings[0]
+        == "[WARN] Config drift detected: 1 differences found (1 critical, 0 warning, 0 info)"
+    )
     assert result.warnings[1] == "- [CRITICAL] as_of: BT='2025-03-31' | RUN='2025-04-01'"
 
 
@@ -552,7 +759,9 @@ def test_bt_run_agent_reports_matching_universe(tmp_path: Path) -> None:
     runner_config_path = tmp_path / "runner.toml"
     universe_path.write_text("MSFT\nAAPL\n", encoding="utf-8")
     bt_config_path.write_text(f'tickers_file = "{universe_path.as_posix()}"\n', encoding="utf-8")
-    runner_config_path.write_text(f'tickers_file = "{universe_path.as_posix()}"\n', encoding="utf-8")
+    runner_config_path.write_text(
+        f'tickers_file = "{universe_path.as_posix()}"\n', encoding="utf-8"
+    )
 
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
@@ -564,8 +773,12 @@ def test_bt_run_agent_reports_matching_universe(tmp_path: Path) -> None:
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
             compare_input=BtRunCompareInput(),
         )
     )
@@ -581,7 +794,9 @@ def test_bt_run_agent_warns_on_universe_drift(tmp_path: Path) -> None:
     bt_universe_path.write_text("AAPL\nMSFT\n", encoding="utf-8")
     runner_universe_path.write_text("AAPL\nNVDA\n", encoding="utf-8")
     bt_config_path.write_text(f'tickers_file = "{bt_universe_path.as_posix()}"\n', encoding="utf-8")
-    runner_config_path.write_text(f'tickers_file = "{runner_universe_path.as_posix()}"\n', encoding="utf-8")
+    runner_config_path.write_text(
+        f'tickers_file = "{runner_universe_path.as_posix()}"\n', encoding="utf-8"
+    )
 
     agent = BtRunAgent(
         run_backtest_tool=FakeRunBacktestTool(),
@@ -593,8 +808,12 @@ def test_bt_run_agent_warns_on_universe_drift(tmp_path: Path) -> None:
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
             compare_input=BtRunCompareInput(),
         )
     )
@@ -603,7 +822,9 @@ def test_bt_run_agent_warns_on_universe_drift(tmp_path: Path) -> None:
     assert "RUN count=2, hash=" in result.warnings[0]
 
 
-def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp_path: Path) -> None:
+def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(
+    tmp_path: Path,
+) -> None:
     bt_config_path = tmp_path / "bt.toml"
     runner_config_path = tmp_path / "runner.toml"
     bt_save_dir = tmp_path / "bt_out"
@@ -612,13 +833,13 @@ def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp
     runner_save_dir.mkdir()
     write_config(bt_config_path, as_of="2025-10-08")
     bt_config_path.write_text(
-        '\n'.join(
+        "\n".join(
             [
                 'as_of = "2025-10-08"',
                 f'save_dir = "{bt_save_dir.as_posix()}"',
-                'top_k = 12',
-                'buffer_k = 3',
-                '[rebalance]',
+                "top_k = 12",
+                "buffer_k = 3",
+                "[rebalance]",
                 'frequency = "monthly"',
             ]
         )
@@ -626,7 +847,7 @@ def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp
         encoding="utf-8",
     )
     runner_config_path.write_text(
-        '\n'.join(
+        "\n".join(
             [
                 f'save_dir = "{runner_save_dir.as_posix()}"',
             ]
@@ -659,8 +880,12 @@ def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp
 
     result = agent.execute(
         BtRunAgentInput(
-            backtest_input=RunBacktestToolInput(command=("python", "bt.py"), config_path=bt_config_path),
-            runner_input=RunRunnerToolInput(command=("python", "runner.py"), config_path=runner_config_path),
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
             compare_input=BtRunCompareInput(),
             seed_runner_previous_from_backtest=True,
         )
@@ -672,8 +897,7 @@ def test_bt_run_agent_seeds_runner_previous_snapshot_from_backtest_positions(tmp
     assert "2025-10-08,GLW" not in seeded
     assert (
         "[INFO] Runner previous-state seeded from backtest positions: "
-        "runner_as_of=2025-10-08, prev_as_of=2025-09-30, rows=2"
-        in result.warnings
+        "runner_as_of=2025-10-08, prev_as_of=2025-09-30, rows=2" in result.warnings
     )
     assert fake_run_runner_tool.last_input.as_of_override == "2025-10-08"
 
