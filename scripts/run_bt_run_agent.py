@@ -220,6 +220,7 @@ def build_run_manifest(
     effective_backtest_config_path: Path | None = None,
     effective_runner_config_path: Path | None = None,
     phase_name: str | None = None,
+    warmup_start: str | None = None,
     phase_start: str | None = None,
     phase_end: str | None = None,
     explicit_time_window: bool = False,
@@ -232,6 +233,7 @@ def build_run_manifest(
         "run_timestamp": context.run_timestamp.isoformat(),
         "profile": context.profile.value,
         "phase_name": phase_name,
+        "warmup_start": warmup_start,
         "phase_start": phase_start,
         "phase_end": phase_end,
         "explicit_time_window": explicit_time_window,
@@ -326,9 +328,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--warmup-start",
+        type=_parse_iso_date,
+        help=(
+            "Optional warmup data start date YYYY-MM-DD. If set, this is passed to "
+            "aktien_oop.backtest as --start while --start remains the phase start."
+        ),
+    )
+    parser.add_argument(
         "--start",
         type=_parse_iso_date,
-        help="Explicit backtest start date YYYY-MM-DD. Overrides profile lookback start.",
+        help=(
+            "Explicit phase start date YYYY-MM-DD. Without --warmup-start this is also "
+            "passed as the backtest start."
+        ),
     )
     parser.add_argument(
         "--end",
@@ -339,7 +352,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--phase-name",
         help="Optional descriptive market phase name for reports and manifest metadata.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    _validate_time_window(args, parser)
+    return args
 
 
 def _parse_iso_date(value: str) -> str:
@@ -348,6 +363,27 @@ def _parse_iso_date(value: str) -> str:
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"expected YYYY-MM-DD date, got {value!r}") from exc
     return value
+
+
+def _validate_time_window(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    values = {
+        "warmup_start": args.warmup_start,
+        "start": args.start,
+        "end": args.end,
+    }
+
+    if values["warmup_start"] and values["start"] and values["warmup_start"] > values["start"]:
+        parser.error(
+            "--warmup-start must be <= --start "
+            f"(got {values['warmup_start']} > {values['start']})"
+        )
+    if values["start"] and values["end"] and values["start"] > values["end"]:
+        parser.error(f"--start must be <= --end (got {values['start']} > {values['end']})")
+    if values["warmup_start"] and values["end"] and values["warmup_start"] > values["end"]:
+        parser.error(
+            "--warmup-start must be <= --end "
+            f"(got {values['warmup_start']} > {values['end']})"
+        )
 
 
 def load_strategy_profile_for_cli(value: str) -> StrategyProfile:
@@ -395,20 +431,22 @@ def main() -> None:
         effective_backtest_config_path, effective_runner_config_path = (
             write_strategy_profile_config_overlays(context, strategy_profile)
         )
+    backtest_start_override = args.warmup_start or args.start
     backtest_profile_args = build_backtest_profile_args(
         profile_behavior,
         backtest_config_path=effective_backtest_config_path,
-        start_override=args.start,
+        start_override=backtest_start_override,
         end_override=args.end,
     )
     effective_backtest_start = extract_backtest_arg(backtest_profile_args, "--start")
     effective_backtest_end = extract_backtest_arg(backtest_profile_args, "--end")
-    explicit_time_window = bool(args.start or args.end or args.phase_name)
+    explicit_time_window = bool(args.start or args.end or args.phase_name or args.warmup_start)
 
     print("run_id:", context.run_id)
     print("run_label:", context.run_label)
     print("profile:", context.profile)
     print("phase_name:", args.phase_name)
+    print("warmup_start:", args.warmup_start)
     print("phase_start:", args.start)
     print("phase_end:", args.end)
     print("compare_mode:", context.compare_mode)
@@ -463,6 +501,7 @@ def main() -> None:
             require_bt_bundles_for_compare=explicit_time_window,
             explicit_time_window_start=args.start,
             explicit_time_window_end=args.end,
+            explicit_warmup_start=args.warmup_start,
             explicit_phase_name=args.phase_name,
         )
     )
@@ -504,6 +543,7 @@ def main() -> None:
         f"run_id: {context.run_id}\n"
         f"profile: {context.profile.value}\n"
         f"phase_name: {args.phase_name if args.phase_name else 'None'}\n"
+        f"warmup_start: {args.warmup_start if args.warmup_start else 'None'}\n"
         f"phase_start: {args.start if args.start else 'None'}\n"
         f"phase_end: {args.end if args.end else 'None'}\n"
         f"effective_backtest_start: {effective_start_text}\n"
@@ -562,6 +602,7 @@ def main() -> None:
         effective_backtest_config_path=effective_backtest_config_path,
         effective_runner_config_path=effective_runner_config_path,
         phase_name=args.phase_name,
+        warmup_start=args.warmup_start,
         phase_start=args.start,
         phase_end=args.end,
         explicit_time_window=explicit_time_window,

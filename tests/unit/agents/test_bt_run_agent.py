@@ -441,7 +441,7 @@ def test_bt_run_agent_explicit_time_window_with_bt_bundles_keeps_runner_compare_
     decisions_dir.mkdir()
     bt_save_dir.mkdir()
     runner_save_dir.mkdir()
-    for as_of in ("2022-10-31", "2022-11-30", "2022-12-30"):
+    for as_of in ("2021-12-31", "2022-10-31", "2022-11-30", "2022-12-30"):
         (decisions_dir / f"BT_test_{as_of}.json").write_text(
             f'{{"kind": "BT", "as_of": "{as_of}", "new_weights": {{"AAPL": 1.0}}}}',
             encoding="utf-8",
@@ -510,10 +510,73 @@ def test_bt_run_agent_explicit_time_window_with_bt_bundles_keeps_runner_compare_
         "2022-11-30",
         "2022-12-30",
     ]
+    assert "2021-12-31" not in [
+        tool_input.as_of_override for tool_input in fake_runner.inputs
+    ]
     assert all_tool.called is True
     assert result.compare.matched is True
     assert "[INFO] Runner compare points: count=2, as_of=2022-11-30,2022-12-30" in result.warnings
     assert not any("2025-10-08" in warning for warning in result.warnings)
+
+
+def test_bt_run_agent_warmup_bundles_before_phase_do_not_start_runner_or_compare(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    for as_of in ("2020-07-31", "2021-12-31"):
+        (decisions_dir / f"BT_test_{as_of}.json").write_text(
+            f'{{"kind": "BT", "as_of": "{as_of}", "new_weights": {{"AAPL": 1.0}}}}',
+            encoding="utf-8",
+        )
+    bt_config_path = tmp_path / "bt.toml"
+    runner_config_path = tmp_path / "runner.toml"
+    write_config(bt_config_path, as_of="2025-10-08")
+    write_config(runner_config_path)
+    fake_runner = FakeRunRunnerTool()
+    latest_tool = FakeCompareLatestRunsTool()
+    all_tool = FakeCompareAllRunsTool()
+    agent = BtRunAgent(
+        run_backtest_tool=FakeRunBacktestTool(),
+        run_runner_tool=fake_runner,
+        compare_latest_runs_tool=latest_tool,
+        compare_all_runs_tool=all_tool,
+        compare_config_tool=FakeCompareConfigTool(),
+        decisions_dir=decisions_dir,
+    )
+
+    result = agent.execute(
+        BtRunAgentInput(
+            backtest_input=RunBacktestToolInput(
+                command=("python", "bt.py"), config_path=bt_config_path
+            ),
+            runner_input=RunRunnerToolInput(
+                command=("python", "runner.py"), config_path=runner_config_path
+            ),
+            compare_input=BtRunCompareInput(),
+            compare_mode=CompareMode.ALL,
+            require_bt_bundles_for_compare=True,
+            explicit_time_window_start="2022-01-01",
+            explicit_time_window_end="2022-12-31",
+            explicit_warmup_start="2020-07-01",
+            explicit_phase_name="bear_market_2022",
+        )
+    )
+
+    assert result.success is False
+    assert fake_runner.inputs == []
+    assert latest_tool.called is False
+    assert all_tool.called is False
+    assert (
+        "[ERROR] No BT decision bundles produced for explicit phase window "
+        "2022-01-01..2022-12-31 (bear_market_2022) after warmup_start=2020-07-01; "
+        "runner skipped."
+    ) in result.warnings
+    assert result.compare.message == (
+        "Compare not executed because No BT decision bundles produced for explicit phase window "
+        "2022-01-01..2022-12-31 (bear_market_2022) after warmup_start=2020-07-01; "
+        "runner skipped."
+    )
 
 
 def test_bt_run_agent_reseeds_each_multi_compare_point_from_backtest_previous_snapshot(

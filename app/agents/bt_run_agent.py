@@ -40,6 +40,7 @@ class BtRunAgentInput:
     require_bt_bundles_for_compare: bool = False
     explicit_time_window_start: str | None = None
     explicit_time_window_end: str | None = None
+    explicit_warmup_start: str | None = None
     explicit_phase_name: str | None = None
 
 
@@ -120,7 +121,7 @@ class BtRunAgent:
             )
 
         if agent_input.require_bt_bundles_for_compare:
-            bt_as_ofs = self._load_bt_as_ofs_from_current_run()
+            bt_as_ofs = self._load_phase_bt_as_ofs_from_current_run(agent_input)
             if not bt_as_ofs:
                 message = self._missing_bt_bundles_message(agent_input)
                 return self._failed_run_result(
@@ -249,7 +250,7 @@ class BtRunAgent:
         as_of_resolution: AsOfResolution,
     ) -> tuple[str | None, ...]:
         count = max(int(agent_input.compare_point_count or 1), 1)
-        bt_as_ofs = self._load_bt_as_ofs_from_current_run()
+        bt_as_ofs = self._load_phase_bt_as_ofs_from_current_run(agent_input)
 
         if bt_as_ofs:
             return tuple(bt_as_ofs[-count:])
@@ -261,6 +262,13 @@ class BtRunAgent:
         if as_of_resolution.backtest_as_of is not None:
             return (as_of_resolution.backtest_as_of,)
         return (None,)
+
+    def _load_phase_bt_as_ofs_from_current_run(self, agent_input: BtRunAgentInput) -> list[str]:
+        return self._filter_phase_as_ofs(
+            self._load_bt_as_ofs_from_current_run(),
+            start=agent_input.explicit_time_window_start,
+            end=agent_input.explicit_time_window_end,
+        )
 
     def _load_bt_as_ofs_from_current_run(self) -> list[str]:
         if self._decisions_dir is None or not self._decisions_dir.exists():
@@ -281,10 +289,29 @@ class BtRunAgent:
         return sorted(as_ofs)
 
     @staticmethod
+    def _filter_phase_as_ofs(
+        as_ofs: list[str],
+        *,
+        start: str | None,
+        end: str | None,
+    ) -> list[str]:
+        return [
+            as_of
+            for as_of in as_ofs
+            if (start is None or as_of >= start) and (end is None or as_of <= end)
+        ]
+
+    @staticmethod
     def _missing_bt_bundles_message(agent_input: BtRunAgentInput) -> str:
         start = agent_input.explicit_time_window_start or "open"
         end = agent_input.explicit_time_window_end or "open"
         phase = f" ({agent_input.explicit_phase_name})" if agent_input.explicit_phase_name else ""
+        if agent_input.explicit_warmup_start is not None:
+            return (
+                f"No BT decision bundles produced for explicit phase window {start}..{end}"
+                f"{phase} after warmup_start={agent_input.explicit_warmup_start}; "
+                "runner skipped."
+            )
         return (
             f"No BT decision bundles produced for explicit time window {start}..{end}"
             f"{phase}; runner skipped to avoid stale/config as_of fallback."

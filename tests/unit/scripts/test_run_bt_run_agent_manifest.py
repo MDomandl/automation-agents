@@ -64,6 +64,8 @@ def test_parse_args_accepts_phase_window_options() -> None:
             "medium",
             "--strategy-profile",
             "balanced_v1",
+            "--warmup-start",
+            "2020-07-01",
             "--start",
             "2022-01-01",
             "--end",
@@ -75,9 +77,28 @@ def test_parse_args_accepts_phase_window_options() -> None:
 
     assert args.profile == "medium"
     assert args.strategy_profile == "balanced_v1"
+    assert args.warmup_start == "2020-07-01"
     assert args.start == "2022-01-01"
     assert args.end == "2022-12-31"
     assert args.phase_name == "bear_market_2022"
+
+
+def test_parse_args_rejects_invalid_warmup_phase_order() -> None:
+    try:
+        parse_args(
+            [
+                "--warmup-start",
+                "2022-02-01",
+                "--start",
+                "2022-01-01",
+                "--end",
+                "2022-12-31",
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("Expected invalid warmup/start order to fail")
 
 
 def test_backtest_profile_args_pass_explicit_start_and_end(tmp_path: Path) -> None:
@@ -92,6 +113,22 @@ def test_backtest_profile_args_pass_explicit_start_and_end(tmp_path: Path) -> No
     )
 
     assert args == ("--start", "2022-01-01", "--end", "2022-12-31")
+
+
+def test_backtest_profile_args_use_warmup_start_as_effective_backtest_start(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "bt.toml"
+    config_path.write_text('as_of = "2025-10-08"\n', encoding="utf-8")
+
+    args = build_backtest_profile_args(
+        resolve_profile_behavior(RunProfile.MEDIUM),
+        backtest_config_path=config_path,
+        start_override="2020-07-01",
+        end_override="2022-12-31",
+    )
+
+    assert args == ("--start", "2020-07-01", "--end", "2022-12-31")
 
 
 def test_backtest_profile_args_explicit_start_overrides_profile_lookback(tmp_path: Path) -> None:
@@ -313,18 +350,20 @@ def test_build_run_manifest_includes_phase_window_metadata() -> None:
         context,
         result,
         phase_name="bear_market_2022",
+        warmup_start="2020-07-01",
         phase_start="2022-01-01",
         phase_end="2022-12-31",
         explicit_time_window=True,
-        effective_backtest_start="2022-01-01",
+        effective_backtest_start="2020-07-01",
         effective_backtest_end="2022-12-31",
     )
 
     assert manifest["phase_name"] == "bear_market_2022"
+    assert manifest["warmup_start"] == "2020-07-01"
     assert manifest["phase_start"] == "2022-01-01"
     assert manifest["phase_end"] == "2022-12-31"
     assert manifest["explicit_time_window"] is True
-    assert manifest["effective_backtest_start"] == "2022-01-01"
+    assert manifest["effective_backtest_start"] == "2020-07-01"
     assert manifest["effective_backtest_end"] == "2022-12-31"
 
 
