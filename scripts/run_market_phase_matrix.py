@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from scripts.compare_runs import default_decisions_root, default_runs_root, load_run_snapshot
+from scripts.phase_metrics import compute_phase_metrics, phase_metrics_warnings
 from scripts.run_profile_compare_v1 import _fmt_num, _fmt_pct, _md_table
 from scripts.run_profile_robustness_matrix import (
     empty_metrics,
@@ -28,9 +29,17 @@ REPORT_DIR = Path("reports") / "strategy_analysis" / "market_phase_matrix"
 SUMMARY_MD_NAME = "market_phase_matrix_summary.md"
 SUMMARY_JSON_NAME = "market_phase_matrix_summary.json"
 PHASE_METRICS_NOTE = (
-    "Note: Performance metrics are currently extracted from the run summary/artifacts and may "
-    "include the warmup path. Phase-only metrics should be added in a later step by segmenting "
-    "equity and benchmark curves to phase_start..phase_end."
+    "Note: Snapshot/full-artifact metrics are extracted from the run summary/artifacts and may "
+    "include the warmup path. Phase-only metrics are computed separately from equity/benchmark "
+    "segments clipped to phase_start..phase_end."
+)
+PHASE_ONLY_METRICS_NOTE = (
+    "Phase-only metrics are computed from equity/benchmark segments clipped to "
+    "phase_start..phase_end and normalized at segment start."
+)
+PHASE_ONLY_TURNOVER_NOTE = (
+    "Turnover is computed from trade rows inside the phase window when available; the first "
+    "in-phase trade may reflect pre-phase holdings."
 )
 
 
@@ -98,6 +107,7 @@ class MarketPhaseRunResult:
     effective_backtest_start: str | None
     effective_backtest_end: str | None
     metrics: dict[str, float | None]
+    phase_metrics: dict[str, float | bool | int | str | None]
     warnings: tuple[str, ...]
     error: str | None
     stdout_excerpt: str | None
@@ -338,6 +348,13 @@ def result_from_manifest(
     warnings = tuple(
         str(warning) for warning in manifest.get("warnings", ()) if isinstance(warning, str)
     )
+    artifacts = manifest.get("artifacts") if isinstance(manifest.get("artifacts"), dict) else {}
+    phase_metrics = compute_phase_metrics(
+        artifacts,
+        _str_or_default(manifest.get("phase_start"), cell.phase.phase_start),
+        _str_or_default(manifest.get("phase_end"), cell.phase.phase_end),
+    )
+    warnings = warnings + phase_metrics_warnings(phase_metrics, artifacts)
     success = (
         False
         if force_failed
@@ -368,6 +385,7 @@ def result_from_manifest(
         effective_backtest_start=_str_or_none(manifest.get("effective_backtest_start")),
         effective_backtest_end=_str_or_none(manifest.get("effective_backtest_end")),
         metrics=metrics,
+        phase_metrics=phase_metrics,
         warnings=warnings,
         error=error,
         stdout_excerpt=excerpt(stdout),
@@ -494,7 +512,7 @@ def build_markdown_report(
             ),
         ),
         "",
-        "## Metrics",
+        "## Snapshot / Full Artifact Metrics",
         _md_table(
             (
                 "Phase",
@@ -510,6 +528,32 @@ def build_markdown_report(
                 "Compare matched",
             ),
             tuple(_metrics_row(result) for result in results),
+        ),
+        "",
+        "## Phase-only Metrics",
+        "",
+        PHASE_ONLY_METRICS_NOTE,
+        "",
+        PHASE_ONLY_TURNOVER_NOTE,
+        "",
+        _md_table(
+            (
+                "Phase",
+                "Strategy Profile",
+                "Portfolio Return",
+                "Benchmark Return",
+                "Relative Return",
+                "Outperformed",
+                "Portfolio CAGR",
+                "Benchmark CAGR",
+                "Relative CAGR",
+                "Portfolio Max DD",
+                "Benchmark Max DD",
+                "DD Better",
+                "Sharpe",
+                "Turnover",
+            ),
+            tuple(_phase_metrics_row(result) for result in results),
         ),
         "",
         "## Summary",
@@ -533,6 +577,26 @@ def _metrics_row(result: MarketPhaseRunResult) -> tuple[object, ...]:
         _fmt_pct(metrics["benchmark_cagr"]),
         _fmt_pct(metrics["benchmark_max_drawdown"]),
         _bool_or_na(result.compare_matched),
+    )
+
+
+def _phase_metrics_row(result: MarketPhaseRunResult) -> tuple[object, ...]:
+    metrics = result.phase_metrics
+    return (
+        result.phase_name,
+        result.strategy_profile,
+        _fmt_pct(metrics["portfolio_total_return"]),
+        _fmt_pct(metrics["benchmark_total_return"]),
+        _fmt_pct(metrics["relative_total_return"]),
+        _bool_or_na(_bool_or_none(metrics["outperformed_benchmark"])),
+        _fmt_pct(metrics["portfolio_cagr"]),
+        _fmt_pct(metrics["benchmark_cagr"]),
+        _fmt_pct(metrics["relative_cagr"]),
+        _fmt_pct(metrics["portfolio_max_drawdown"]),
+        _fmt_pct(metrics["benchmark_max_drawdown"]),
+        _bool_or_na(_bool_or_none(metrics["drawdown_better_than_benchmark"])),
+        _fmt_num(metrics["portfolio_sharpe"]),
+        _fmt_pct(metrics["turnover"]),
     )
 
 

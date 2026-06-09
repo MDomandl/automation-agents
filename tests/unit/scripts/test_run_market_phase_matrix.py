@@ -92,6 +92,8 @@ def test_json_report_contains_phase_run_compare_and_runner_points() -> None:
     assert row["run_id"] == "20260607_100000"
     assert row["compare_success"] is True
     assert row["compare_matched"] is True
+    assert row["metrics"]["total_return"] == 12.3
+    assert row["phase_metrics"]["portfolio_total_return"] == 10.0
     assert row["runner_compare_points"] == (
         "2022-10-31",
         "2022-11-30",
@@ -105,9 +107,10 @@ def test_json_report_contains_phase_run_compare_and_runner_points() -> None:
         "2022-11-30",
         "2022-12-30",
     ]
+    assert decoded["matrix"][0]["phase_metrics"]["outperformed_benchmark"] is True
 
 
-def test_markdown_report_contains_phase_metrics_note() -> None:
+def test_markdown_report_contains_separate_snapshot_and_phase_only_metrics() -> None:
     report = matrix.build_markdown_report(
         [_result()],
         phases=(matrix.DEFAULT_PHASES[0],),
@@ -116,7 +119,12 @@ def test_markdown_report_contains_phase_metrics_note() -> None:
 
     assert "# Market Phase Matrix" in report
     assert matrix.PHASE_METRICS_NOTE in report
+    assert "## Snapshot / Full Artifact Metrics" in report
+    assert "## Phase-only Metrics" in report
+    assert matrix.PHASE_ONLY_METRICS_NOTE in report
+    assert matrix.PHASE_ONLY_TURNOVER_NOTE in report
     assert "| bear_market_2022 | balanced_v1 | 20260607_100000 | true | true |" in report
+    assert "| bear_market_2022 | balanced_v1 | 10.00% | 5.00% | 5.00% | true |" in report
 
 
 def test_failed_single_runs_are_documented_without_breaking_matrix(monkeypatch) -> None:
@@ -267,9 +275,37 @@ def _result(
             "benchmark_cagr": 5.6 if success else None,
             "benchmark_max_drawdown": -9.8 if success else None,
         },
+        phase_metrics=_phase_metrics(success=success),
         warnings=(),
         error=error,
         stdout_excerpt=None,
         stderr_excerpt=None,
         missing=() if success else ("run_dir", "manifest"),
     )
+
+
+def _phase_metrics(*, success: bool) -> dict[str, float | bool | int | str | None]:
+    return {
+        "portfolio_total_return": 10.0 if success else None,
+        "portfolio_cagr": 11.0 if success else None,
+        "portfolio_max_drawdown": -4.0 if success else None,
+        "portfolio_volatility": 12.0 if success else None,
+        "portfolio_sharpe": 1.5 if success else None,
+        "benchmark_total_return": 5.0 if success else None,
+        "benchmark_cagr": 6.0 if success else None,
+        "benchmark_max_drawdown": -5.0 if success else None,
+        "benchmark_volatility": 9.0 if success else None,
+        "benchmark_sharpe": 1.1 if success else None,
+        "relative_total_return": 5.0 if success else None,
+        "relative_cagr": 5.0 if success else None,
+        "outperformed_benchmark": True if success else None,
+        "cagr_outperformed_benchmark": True if success else None,
+        "drawdown_better_than_benchmark": True if success else None,
+        "turnover": 20.0 if success else None,
+        "turnover_is_phase_only": success,
+        "turnover_source": "trades_csv_in_phase_rows" if success else None,
+        "turnover_note": "Computed from trade rows inside phase window." if success else None,
+        "phase_start_actual": "2022-01-03" if success else None,
+        "phase_end_actual": "2022-12-30" if success else None,
+        "observation_count": 251 if success else 0,
+    }
