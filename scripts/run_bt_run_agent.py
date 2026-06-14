@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgentInput, BtRunCompareInput
 from app.bootstrap.bt_run_container import build_bt_run_agent
-from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
+from app.domain.bt_run.run_context import CompareMode, RunContext, RunnerMode, RunProfile
 from app.domain.bt_run.run_result import RunResult, StepResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
@@ -162,7 +162,10 @@ def _subtract_months(value: date, months: int) -> date:
     return date(year, month, day)
 
 
-def build_run_context(profile: RunProfile) -> RunContext:
+def build_run_context(
+    profile: RunProfile,
+    runner_mode: RunnerMode = RunnerMode.ANALYSIS,
+) -> RunContext:
     ai_agents_dir = Path(
         r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents"
     )
@@ -171,7 +174,7 @@ def build_run_context(profile: RunProfile) -> RunContext:
     now = datetime.now()
 
     run_id = now.strftime("%Y%m%d_%H%M%S")
-    run_label = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}_{profile.value}"
+    run_label = f"{now.strftime('%Y-%m-%d_%H-%M-%S')}_{profile.value}_{runner_mode.value}"
 
     output_dir = ai_agents_dir / "automation_runs" / run_label
     decisions_dir = aktien_oop_dir / "decisions" / run_id
@@ -193,6 +196,7 @@ def build_run_context(profile: RunProfile) -> RunContext:
         output_dir=output_dir,
         backtest_config_path=backtest_config_path,
         runner_config_path=runner_config_path,
+        runner_mode=runner_mode,
         bps_tolerance=5.0,
         ignore_cash=True,
     )
@@ -232,6 +236,8 @@ def build_run_manifest(
         "run_label": context.run_label,
         "run_timestamp": context.run_timestamp.isoformat(),
         "profile": context.profile.value,
+        "runner_mode": context.runner_mode.value,
+        "execution": _runner_mode_execution_fields(context.runner_mode),
         "phase_name": phase_name,
         "warmup_start": warmup_start,
         "phase_start": phase_start,
@@ -264,6 +270,25 @@ def build_run_manifest(
     }
     manifest.update(_strategy_profile_manifest_fields(strategy_profile))
     return manifest
+
+
+def _runner_mode_execution_fields(runner_mode: RunnerMode) -> dict[str, object]:
+    return {
+        "mode": runner_mode.value,
+        "approval_status": (
+            "manual_approval_required"
+            if runner_mode == RunnerMode.PAPER
+            else "not_required_for_analysis"
+        ),
+        "orders_executed": False,
+        "broker_connected": False,
+        "live_trading_enabled": False,
+        "note": (
+            "Paper mode only creates proposals, artifacts, and reports; no orders are executed."
+            if runner_mode == RunnerMode.PAPER
+            else "Analysis mode only creates validation artifacts; no orders are executed."
+        ),
+    }
 
 
 def _strategy_profile_manifest_fields(
@@ -325,6 +350,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "Strategy profile name from configs/profiles, e.g. balanced_v1, "
             "or a path to a .toml profile file."
+        ),
+    )
+    parser.add_argument(
+        "--runner-mode",
+        choices=(RunnerMode.ANALYSIS.value, RunnerMode.PAPER.value),
+        default=RunnerMode.ANALYSIS.value,
+        help=(
+            "Operational runner mode. 'paper' creates proposal/report artifacts only and "
+            "never executes orders."
         ),
     )
     parser.add_argument(
@@ -410,6 +444,267 @@ def write_strategy_profile_config_overlays(
     return backtest_overlay_path, runner_overlay_path
 
 
+def build_paper_run_artifact(
+    context: RunContext,
+    result: RunResult,
+    *,
+    strategy_profile: StrategyProfile | None = None,
+) -> dict[str, object]:
+    latest_bundle = _load_latest_decision_bundle(context.decisions_dir, "RUN")
+    target_positions = _extract_weights(latest_bundle["payload"]) if latest_bundle else {}
+    previous_positions = (
+        _extract_previous_weights(latest_bundle["payload"]) if latest_bundle else {}
+    )
+    proposals = _build_weight_change_proposals(previous_positions, target_positions)
+
+    return {
+        "run_id": context.run_id,
+        "run_label": context.run_label,
+        "run_timestamp": context.run_timestamp.isoformat(),
+        "runner_mode": context.runner_mode.value,
+        "approval_status": "manual_approval_required",
+        "orders_executed": False,
+        "broker_connected": False,
+        "live_trading_enabled": False,
+        "execution": {
+            "approval_status": "manual_approval_required",
+            "orders_executed": False,
+            "broker_connected": False,
+            "live_trading_enabled": False,
+        },
+        "strategy_profile_name": strategy_profile.name if strategy_profile else None,
+        "strategy_profile_label": strategy_profile.label if strategy_profile else None,
+        "universe": strategy_profile.universe if strategy_profile else None,
+        "decision_bundle": latest_bundle["path"] if latest_bundle else None,
+        "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
+        "target_positions": target_positions,
+        "cash_weight": _cash_weight(target_positions),
+        "buy_proposals": proposals["buy"],
+        "sell_proposals": proposals["sell"],
+        "hold_proposals": proposals["hold"],
+        "human_review_required": {
+            "required": True,
+            "reason": "Paper mode creates proposals only. Manual review and approval are required.",
+            "checklist": [
+                "current market data",
+                "actual portfolio positions",
+                "available liquidity",
+                "order costs and spreads",
+                "tax effects",
+                "personal risk capacity",
+            ],
+        },
+        "warnings": [
+            "No real order was executed.",
+            "No broker connection was used.",
+            "This report is a proposal only.",
+            "Manual approval is required before any future live-trading implementation.",
+            *result.warnings,
+        ],
+    }
+
+
+def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> Path:
+    json_path = context.output_dir / "paper_run_report.json"
+    txt_path = context.output_dir / "paper_run_report.txt"
+    json_path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    buy_count = len(artifact.get("buy_proposals", []))
+    sell_count = len(artifact.get("sell_proposals", []))
+    target_positions = artifact.get("target_positions", {})
+    target_lines = _format_position_lines(target_positions)
+    buy_lines = _format_proposal_lines(artifact.get("buy_proposals", []))
+    sell_lines = _format_proposal_lines(artifact.get("sell_proposals", []))
+    hold_lines = _format_proposal_lines(artifact.get("hold_proposals", []))
+    warnings = artifact.get("warnings", [])
+    warning_lines = "\n".join(f"- {warning}" for warning in warnings)
+    review = artifact.get("human_review_required", {})
+    checklist = review.get("checklist", []) if isinstance(review, dict) else []
+    checklist_lines = "\n".join(f"- Check {item}." for item in checklist)
+    txt_path.write_text(
+        "\n".join(
+            [
+                "Paper Run Report",
+                "",
+                "Execution Safety",
+                "This report contains paper-mode proposals only. It is not an order list.",
+                "No real orders were executed.",
+                "No broker connection was used.",
+                "Live trading was not enabled.",
+                "",
+                f"run_id: {artifact['run_id']}",
+                f"run_label: {artifact.get('run_label')}",
+                f"runner_mode: {artifact['runner_mode']}",
+                f"strategy_profile_name: {artifact['strategy_profile_name']}",
+                f"strategy_profile_label: {artifact['strategy_profile_label']}",
+                f"universe: {artifact['universe']}",
+                f"as_of: {artifact['as_of']}",
+                f"approval_status: {artifact['approval_status']}",
+                "orders_executed: false",
+                "broker_connected: false",
+                "live_trading_enabled: false",
+                f"decision_bundle: {artifact['decision_bundle']}",
+                f"cash_weight: {artifact['cash_weight']}",
+                f"buy_proposals_count: {buy_count}",
+                f"sell_proposals_count: {sell_count}",
+                "",
+                "Target Positions",
+                target_lines or "- None",
+                "",
+                "Buy Proposals",
+                buy_lines or "- None",
+                "",
+                "Sell Proposals",
+                sell_lines or "- None",
+                "",
+                "Hold Proposals",
+                hold_lines or "- None",
+                "",
+                "Warnings",
+                warning_lines or "- None",
+                "",
+                "Human Review Required",
+                (
+                    "Before any real implementation, a human must manually review "
+                    "and approve this proposal."
+                ),
+                checklist_lines or "- Check current market data.",
+                "",
+                "NO REAL ORDER WAS EXECUTED.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return json_path
+
+
+def _format_position_lines(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    return "\n".join(
+        f"- {ticker}: {_format_weight(weight)}"
+        for ticker, weight in sorted(value.items())
+        if isinstance(weight, int | float)
+    )
+
+
+def _format_proposal_lines(value: object) -> str:
+    if not isinstance(value, list):
+        return ""
+    lines = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        ticker = item.get("ticker")
+        previous = item.get("previous_weight")
+        target = item.get("target_weight")
+        delta = item.get("delta_weight")
+        if ticker is None:
+            continue
+        if all(isinstance(weight, int | float) for weight in (previous, target, delta)):
+            lines.append(
+                f"- {ticker}: previous {_format_weight(previous)}, "
+                f"target {_format_weight(target)}, delta {_format_weight(delta)}"
+            )
+        else:
+            lines.append(f"- {ticker}")
+    return "\n".join(lines)
+
+
+def _format_weight(value: int | float) -> str:
+    return f"{float(value):.6f}"
+
+
+def _load_latest_decision_bundle(decisions_dir: Path, kind: str) -> dict[str, object] | None:
+    if not decisions_dir.exists():
+        return None
+
+    candidates: list[tuple[str, str, Path, dict]] = []
+    for path in decisions_dir.glob(f"{kind}_*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        as_of = payload.get("as_of")
+        candidates.append((str(as_of or ""), path.name, path, payload))
+
+    if not candidates:
+        return None
+
+    _, _, path, payload = sorted(candidates)[-1]
+    return {"path": str(path), "payload": payload}
+
+
+def _extract_weights(payload: dict) -> dict[str, float]:
+    for field in ("new_weights", "weights", "positions"):
+        value = payload.get(field)
+        normalized = _normalize_weights(value)
+        if normalized is not None:
+            return normalized
+    return {}
+
+
+def _extract_previous_weights(payload: dict) -> dict[str, float]:
+    for field in ("old_weights", "previous_weights", "current_weights"):
+        value = payload.get(field)
+        normalized = _normalize_weights(value)
+        if normalized is not None:
+            return normalized
+    return {}
+
+
+def _normalize_weights(value: object) -> dict[str, float] | None:
+    if isinstance(value, dict):
+        return {str(ticker): float(weight) for ticker, weight in value.items()}
+    if isinstance(value, list):
+        weights: dict[str, float] = {}
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            ticker = item.get("ticker")
+            weight = item.get("weight", item.get("allocation_pct"))
+            if ticker is not None and weight is not None:
+                weights[str(ticker)] = float(weight)
+        return weights
+    return None
+
+
+def _build_weight_change_proposals(
+    previous_weights: dict[str, float],
+    target_weights: dict[str, float],
+) -> dict[str, list[dict[str, float | str]]]:
+    proposals: dict[str, list[dict[str, float | str]]] = {
+        "buy": [],
+        "sell": [],
+        "hold": [],
+    }
+    for ticker in sorted(set(previous_weights) | set(target_weights)):
+        previous = previous_weights.get(ticker, 0.0)
+        target = target_weights.get(ticker, 0.0)
+        delta = target - previous
+        item = {
+            "ticker": ticker,
+            "previous_weight": previous,
+            "target_weight": target,
+            "delta_weight": delta,
+        }
+        if delta > 0:
+            proposals["buy"].append(item)
+        elif delta < 0:
+            proposals["sell"].append(item)
+        else:
+            proposals["hold"].append(item)
+    return proposals
+
+
+def _cash_weight(weights: dict[str, float]) -> float:
+    for ticker, weight in weights.items():
+        if ticker.upper() in {"CASH", "EUR", "USD"}:
+            return weight
+    return max(0.0, 1.0 - sum(weights.values())) if weights else 0.0
+
+
 def main() -> None:
     args = parse_args()
     strategy_profile = None
@@ -421,7 +716,8 @@ def main() -> None:
             raise SystemExit(f"error: {exc}\nSupported strategy profiles: {known}") from exc
 
     profile = RunProfile(args.profile)
-    context = build_run_context(profile)
+    runner_mode = RunnerMode(args.runner_mode)
+    context = build_run_context(profile, runner_mode)
     profile_behavior = resolve_profile_behavior(profile)
     context.output_dir.mkdir(parents=True, exist_ok=True)
     context.decisions_dir.mkdir(parents=True, exist_ok=True)
@@ -445,6 +741,8 @@ def main() -> None:
     print("run_id:", context.run_id)
     print("run_label:", context.run_label)
     print("profile:", context.profile)
+    print("runner_mode:", context.runner_mode.value)
+    print("orders_executed:", False)
     print("phase_name:", args.phase_name)
     print("warmup_start:", args.warmup_start)
     print("phase_start:", args.start)
@@ -538,10 +836,14 @@ def main() -> None:
     effective_end_text = effective_backtest_end if effective_backtest_end else "None"
     regime_action = strategy_profile.regime_below_action if strategy_profile else "None"
     profile_args_text = " ".join(backtest_profile_args) if backtest_profile_args else "None"
+    approval_status = _runner_mode_execution_fields(context.runner_mode)["approval_status"]
 
     summary_text = (
         f"run_id: {context.run_id}\n"
         f"profile: {context.profile.value}\n"
+        f"runner_mode: {context.runner_mode.value}\n"
+        f"approval_status: {approval_status}\n"
+        f"orders_executed: false\n"
         f"phase_name: {args.phase_name if args.phase_name else 'None'}\n"
         f"warmup_start: {args.warmup_start if args.warmup_start else 'None'}\n"
         f"phase_start: {args.start if args.start else 'None'}\n"
@@ -610,6 +912,15 @@ def main() -> None:
         effective_backtest_end=effective_backtest_end,
     )
     manifest["artifacts"] = artifact_paths
+    if context.runner_mode == RunnerMode.PAPER:
+        paper_artifact = build_paper_run_artifact(
+            context,
+            result,
+            strategy_profile=strategy_profile,
+        )
+        paper_report_path = write_paper_run_report(context, paper_artifact)
+        manifest["paper"] = paper_artifact
+        manifest["artifacts"]["paper_report"] = str(paper_report_path)
     (context.output_dir / "run_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False),
         encoding="utf-8",

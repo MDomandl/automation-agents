@@ -4,17 +4,19 @@ from pathlib import Path
 
 from app.application.bt_run.dto import CompareAllRunsRequest
 from app.application.bt_run.use_cases import CompareAllRunsUseCase
-from app.domain.bt_run.run_context import CompareMode, RunContext, RunProfile
+from app.domain.bt_run.run_context import CompareMode, RunContext, RunnerMode, RunProfile
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
 from scripts.run_bt_run_agent import (
     build_backtest_command,
     build_backtest_profile_args,
+    build_paper_run_artifact,
     build_run_context,
     build_run_manifest,
     load_strategy_profile_for_cli,
     parse_args,
     resolve_profile_behavior,
+    write_paper_run_report,
     write_strategy_profile_config_overlays,
 )
 from scripts.strategy_profiles import StrategyProfileError
@@ -81,6 +83,18 @@ def test_parse_args_accepts_phase_window_options() -> None:
     assert args.start == "2022-01-01"
     assert args.end == "2022-12-31"
     assert args.phase_name == "bear_market_2022"
+
+
+def test_parse_args_accepts_runner_mode_paper() -> None:
+    args = parse_args(["--runner-mode", "paper"])
+
+    assert args.runner_mode == "paper"
+
+
+def test_parse_args_defaults_runner_mode_to_analysis() -> None:
+    args = parse_args([])
+
+    assert args.runner_mode == "analysis"
 
 
 def test_parse_args_rejects_invalid_warmup_phase_order() -> None:
@@ -193,6 +207,20 @@ def test_build_run_context_uses_profile_behavior_for_compare_mode() -> None:
     assert build_run_context(RunProfile.PROBLEM).compare_mode == CompareMode.ALL
 
 
+def test_build_run_context_defaults_to_analysis_mode() -> None:
+    context = build_run_context(RunProfile.SHORT)
+
+    assert context.runner_mode == RunnerMode.ANALYSIS
+    assert context.run_label.endswith("_short_analysis")
+
+
+def test_build_run_context_accepts_paper_mode() -> None:
+    context = build_run_context(RunProfile.SHORT, RunnerMode.PAPER)
+
+    assert context.runner_mode == RunnerMode.PAPER
+    assert context.run_label.endswith("_short_paper")
+
+
 def test_build_run_context_uses_run_specific_decisions_directory() -> None:
     context = build_run_context(RunProfile.LONG)
 
@@ -266,6 +294,7 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
         output_dir=Path("D:/ai_agents/automation_runs/2026-03-29_12-34-56_short"),
         backtest_config_path=Path("D:/ai_agents/aktien_oop/backtest_config.toml"),
         runner_config_path=Path("D:/ai_agents/aktien_oop/configs/runner_config.toml"),
+        runner_mode=RunnerMode.PAPER,
     )
     result = RunResult(
         success=True,
@@ -300,6 +329,11 @@ def test_build_run_manifest_includes_full_step_result_fields() -> None:
     assert (
         manifest["profile_behavior"] == "fast smoke test: latest compare, 18-month backtest scope"
     )
+    assert manifest["runner_mode"] == "paper"
+    assert manifest["execution"]["approval_status"] == "manual_approval_required"
+    assert manifest["execution"]["orders_executed"] is False
+    assert manifest["execution"]["broker_connected"] is False
+    assert manifest["execution"]["live_trading_enabled"] is False
     assert manifest["compare_point_count"] == 1
     assert manifest["backtest"]["command"] == ["python", "-m", "aktien_oop.backtest"]
     assert manifest["backtest"]["returncode"] == 0
@@ -571,3 +605,205 @@ def test_build_run_manifest_includes_strategy_profile_metadata() -> None:
     assert manifest["cash_yield_annual"] == 0.00
     assert manifest["regime_sma_days"] == 200
     assert manifest["benchmark_ticker"] == "SXR8.DE"
+
+
+def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: Path) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    (decisions_dir / "RUN_old_2025-09-30.json").write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-09-30",
+                "new_weights": {"OLD": 1.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    latest_path = decisions_dir / "RUN_latest_2025-10-08.json"
+    latest_path.write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "previous_weights": {"AAPL": 0.10, "MSFT": 0.20},
+                "new_weights": {"AAPL": 0.15, "NVDA": 0.25, "CASH": 0.60},
+            }
+        ),
+        encoding="utf-8",
+    )
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=decisions_dir,
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+        warnings=("[WARN] example",),
+    )
+    profile = load_strategy_profile_for_cli("balanced_v1")
+
+    artifact = build_paper_run_artifact(context, result, strategy_profile=profile)
+
+    assert artifact["runner_mode"] == "paper"
+    assert artifact["approval_status"] == "manual_approval_required"
+    assert artifact["orders_executed"] is False
+    assert artifact["broker_connected"] is False
+    assert artifact["live_trading_enabled"] is False
+    assert artifact["execution"]["orders_executed"] is False
+    assert artifact["execution"]["broker_connected"] is False
+    assert artifact["execution"]["live_trading_enabled"] is False
+    assert artifact["strategy_profile_name"] == "balanced_v1"
+    assert artifact["universe"] == "sp500"
+    assert artifact["decision_bundle"] == str(latest_path)
+    assert artifact["as_of"] == "2025-10-08"
+    assert artifact["target_positions"] == {"AAPL": 0.15, "NVDA": 0.25, "CASH": 0.60}
+    assert artifact["cash_weight"] == 0.60
+    assert {
+        "ticker": "NVDA",
+        "previous_weight": 0.0,
+        "target_weight": 0.25,
+        "delta_weight": 0.25,
+    } in artifact["buy_proposals"]
+    assert {
+        "ticker": "MSFT",
+        "previous_weight": 0.20,
+        "target_weight": 0.0,
+        "delta_weight": -0.20,
+    } in artifact["sell_proposals"]
+    assert artifact["human_review_required"]["required"] is True
+    assert "current market data" in artifact["human_review_required"]["checklist"]
+    assert "No real order was executed." in artifact["warnings"]
+    assert "No broker connection was used." in artifact["warnings"]
+    assert "This report is a proposal only." in artifact["warnings"]
+    assert "[WARN] example" in artifact["warnings"]
+
+
+def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=tmp_path / "decisions",
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    context.output_dir.mkdir(parents=True)
+    artifact = {
+        "run_id": context.run_id,
+        "runner_mode": "paper",
+        "strategy_profile_name": "balanced_v1",
+        "strategy_profile_label": "Balanced v1",
+        "universe": "sp500",
+        "as_of": "2025-10-08",
+        "approval_status": "manual_approval_required",
+        "orders_executed": False,
+        "broker_connected": False,
+        "live_trading_enabled": False,
+        "execution": {
+            "approval_status": "manual_approval_required",
+            "orders_executed": False,
+            "broker_connected": False,
+            "live_trading_enabled": False,
+        },
+        "decision_bundle": "RUN_latest.json",
+        "cash_weight": 0.1,
+        "target_positions": {"AAPL": 0.9, "CASH": 0.1},
+        "buy_proposals": [
+            {
+                "ticker": "AAPL",
+                "previous_weight": 0.5,
+                "target_weight": 0.9,
+                "delta_weight": 0.4,
+            }
+        ],
+        "sell_proposals": [
+            {
+                "ticker": "MSFT",
+                "previous_weight": 0.4,
+                "target_weight": 0.0,
+                "delta_weight": -0.4,
+            }
+        ],
+        "hold_proposals": [
+            {
+                "ticker": "CASH",
+                "previous_weight": 0.1,
+                "target_weight": 0.1,
+                "delta_weight": 0.0,
+            }
+        ],
+        "human_review_required": {
+            "required": True,
+            "checklist": [
+                "current market data",
+                "actual portfolio positions",
+                "available liquidity",
+                "order costs and spreads",
+                "tax effects",
+                "personal risk capacity",
+            ],
+        },
+        "warnings": [
+            "No real order was executed.",
+            "No broker connection was used.",
+            "This report is a proposal only.",
+        ],
+    }
+
+    report_path = write_paper_run_report(context, artifact)
+
+    assert report_path == context.output_dir / "paper_run_report.json"
+    decoded = json.loads(report_path.read_text(encoding="utf-8"))
+    assert decoded["orders_executed"] is False
+    assert decoded["execution"]["orders_executed"] is False
+    assert decoded["broker_connected"] is False
+    assert decoded["live_trading_enabled"] is False
+    assert decoded["target_positions"] == {"AAPL": 0.9, "CASH": 0.1}
+    assert decoded["buy_proposals"][0]["delta_weight"] == 0.4
+    assert decoded["sell_proposals"][0]["delta_weight"] == -0.4
+    assert decoded["human_review_required"]["required"] is True
+    text = (context.output_dir / "paper_run_report.txt").read_text(encoding="utf-8")
+    assert "Paper Run Report" in text
+    assert "This report contains paper-mode proposals only. It is not an order list." in text
+    assert "runner_mode: paper" in text
+    assert "strategy_profile_name: balanced_v1" in text
+    assert "approval_status: manual_approval_required" in text
+    assert "orders_executed: false" in text
+    assert "broker_connected: false" in text
+    assert "live_trading_enabled: false" in text
+    assert "Target Positions" in text
+    assert "- AAPL: 0.900000" in text
+    assert "Buy Proposals" in text
+    assert "- AAPL: previous 0.500000, target 0.900000, delta 0.400000" in text
+    assert "Sell Proposals" in text
+    assert "- MSFT: previous 0.400000, target 0.000000, delta -0.400000" in text
+    assert "Hold Proposals" in text
+    assert "Human Review Required" in text
+    assert "- Check current market data." in text
+    assert "- Check actual portfolio positions." in text
+    assert "NO REAL ORDER WAS EXECUTED." in text
+
+
+def test_all_strategy_profiles_remain_loadable() -> None:
+    assert load_strategy_profile_for_cli("conservative_v1").name == "conservative_v1"
+    assert load_strategy_profile_for_cli("balanced_v1").name == "balanced_v1"
+    assert load_strategy_profile_for_cli("offensive_v1").name == "offensive_v1"

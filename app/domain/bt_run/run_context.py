@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from pathlib import Path
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
 
 
 class RunProfile(str, Enum):
@@ -14,6 +14,11 @@ class RunProfile(str, Enum):
 class CompareMode(str, Enum):
     LATEST = "latest"
     ALL = "all"
+
+
+class RunnerMode(str, Enum):
+    ANALYSIS = "analysis"
+    PAPER = "paper"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,5 +38,6 @@ class RunContext:
     backtest_config_path: Path
     runner_config_path: Path
 
+    runner_mode: RunnerMode = RunnerMode.ANALYSIS
     bps_tolerance: float = 5.0
     ignore_cash: bool = True
