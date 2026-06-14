@@ -2320,6 +2320,3628 @@ Offene Punkte:
 - Bestehende `test_store_positions.py`-Failures separat klären.
 - Später optional prüfen, ob Runner-OHLC-Daten noch effizienter gebündelt werden können.
 
+## 03.27 Sektor-Metriken ergänzt
+
+Die `max_per_sector`-Testmatrix wurde um Sektor-Metriken erweitert.
+
+Ergänzte Kennzahlen:
+
+- Max Sector Weight
+- Dominant Sector
+- Sector Count
+- Sector Distribution
+- Max Sector Positions
+- Dominant Sector Positions
+- Source
+- Warning
+
+Die Berechnung erfolgt rein im Reporting. Strategie-, Auswahl-, Scoring- und Finalisierungslogik wurden nicht verändert.
+
+Datenquelle:
+
+- primär: finale Portfolio-Gewichte aus Decision Bundles via `snapshot.behavior.last_portfolio`
+- Sektorquelle: `sp500_meta.csv`
+- Fallback: letzte `as_of`-Gruppe aus Positions-CSV
+
+Tests:
+
+- `72 passed`
+
+### Wichtigste Ergebnisse
+
+| Variante | Max Sector Weight | Dominant Sector | Sector Count |
+|---|---:|---|---:|
+| max_per_sector=2 | 22.22% | Consumer Discretionary / Information Technology | 7 |
+| max_per_sector=3 | 33.33% | Information Technology | 6 |
+| max_per_sector=4 | 44.44% | Information Technology | 6 |
+| sector_off | 77.78% | Information Technology | 3 |
+
+### Interpretation
+
+Die Sektor-Metriken bestätigen, dass `sector_off` zwar renditestark ist, aber ein erhebliches Klumpenrisiko besitzt.
+
+Ohne Sektorlimit konzentriert sich das Portfolio stark auf Information Technology. Damit ist `sector_off` eher ein offensiver Kandidat und kein sauberer Balanced-Kandidat.
+
+`max_per_sector=2` zeigt dagegen die breiteste Sektorstreuung, den niedrigsten Max Sector Weight und zugleich starke Performance-Werte in MEDIUM und LONG.
+
+### Vorläufiges Fazit
+
+`sp500 + top_k=15 + max_per_sector=2` ist aktuell der stärkste Balanced-Kandidat.
+
+## 03.28 Balanced-Kandidat v1 festlegen
+
+Nach den bisherigen Universe-, `top_k`- und `max_per_sector`-Tests wird ein erster Balanced-Kandidat festgelegt.
+
+Dieser Kandidat ist noch kein finales Live-Profil, sondern der aktuelle beste Ausgangspunkt für weitere Tests.
+
+---
+
+### 03.28.1 Ausgangslage
+
+Bisherige Erkenntnisse:
+
+| Testbereich | Ergebnis |
+|---|---|
+| Universe-Vergleich | `sp500_top100` ist defensiver, `sp500` hat mehr Renditepotenzial |
+| `top_k`-Sensitivität | `top_k=15` ist auf `sp500` der beste Balanced-Kompromiss |
+| `max_per_sector`-Sensitivität | `max_per_sector=2` ist für Balanced/Risk-Control am stärksten |
+| Sektor-Metriken | `sector_off` ist stark renditeorientiert, aber extrem konzentriert |
+| Performance-Cache | Matrixläufe sind nun deutlich schneller ausführbar |
+
+Die Sektor-Metriken zeigen besonders deutlich, dass `sector_off` zwar hohe Renditen liefern kann, aber mit starkem Klumpenrisiko verbunden ist. Ohne Sektorlimit lag der maximale Sektoranteil bei 77,78% und der dominante Sektor war Information Technology; bei `max_per_sector=2` lag der maximale Sektoranteil nur bei 22,22% und das Portfolio war auf 7 Sektoren verteilt. :contentReference[oaicite:0]{index=0}
+
+---
+
+### 03.28.2 Balanced-Kandidat v1
+
+Der aktuelle Balanced-Kandidat lautet:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| Profilziel | Balanced |
+| Benchmark | `SXR8.DE` |
+
+Kurzform:
+
+```toml
+universe = "sp500"
+top_k = 15
+use_sector_limits = true
+max_per_sector = 2
+```
+
+## 03.29 Parameter-Testreihe: max_turnover_cap
+
+Nach Festlegung des ersten Balanced-Kandidaten wird als nächster Parameter `max_turnover_cap` untersucht.
+
+Ausgangspunkt ist der aktuelle Balanced-Kandidat v1:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| Profilziel | Balanced |
+| Benchmark | `SXR8.DE` |
+
+---
+
+### 03.29.1 Ziel der Testreihe
+
+Die Testreihe soll prüfen, ob sich der Turnover reduzieren lässt, ohne die bisherigen Vorteile des Balanced-Kandidaten deutlich zu verschlechtern.
+
+Wichtige Fragen:
+
+| Frage | Zweck |
+|---|---|
+| Reduziert ein niedrigeres `max_turnover_cap` die Umschichtung deutlich? | Handelbarkeit verbessern |
+| Bleiben CAGR und Alpha stabil? | Rendite erhalten |
+| Bleibt der Max Drawdown akzeptabel? | Risikoprofil sichern |
+| Bleibt die Sharpe Ratio stark? | Rendite-Risiko-Verhältnis sichern |
+| Wird die Strategie durch zu niedrigen Turnover träge? | Anpassungsfähigkeit prüfen |
+| Gibt es einen guten Kompromiss für Balanced? | Profilbildung vorbereiten |
+
+---
+
+### 03.29.2 Zu testende Werte
+
+| Variante | `max_turnover_cap` | Charakter |
+|---|---:|---|
+| sehr ruhig | 0.20 | starke Begrenzung der Umschichtung |
+| ausgewogen | 0.35 | moderater Turnover-Cap |
+| flexibel | 0.50 | mehr Anpassungsfreiheit |
+| offen | n/a | keine beziehungsweise praktisch keine Begrenzung |
+
+Falls `max_turnover_cap` in der aktuellen Config anders benannt oder anders interpretiert wird, soll Codex zuerst die bestehende Logik prüfen und die Testwerte daran sauber anpassen.
+
+---
+
+### 03.29.3 Testmatrix max_turnover_cap
+
+Für jede Variante sollen SHORT, MEDIUM und LONG getestet werden.
+
+| Test | Universe | top_k | max_per_sector | max_turnover_cap | Zeitraum |
+|---|---|---:|---:|---:|---|
+| T1 | `sp500` | 15 | 2 | 0.20 | SHORT |
+| T2 | `sp500` | 15 | 2 | 0.20 | MEDIUM |
+| T3 | `sp500` | 15 | 2 | 0.20 | LONG |
+| T4 | `sp500` | 15 | 2 | 0.35 | SHORT |
+| T5 | `sp500` | 15 | 2 | 0.35 | MEDIUM |
+| T6 | `sp500` | 15 | 2 | 0.35 | LONG |
+| T7 | `sp500` | 15 | 2 | 0.50 | SHORT |
+| T8 | `sp500` | 15 | 2 | 0.50 | MEDIUM |
+| T9 | `sp500` | 15 | 2 | 0.50 | LONG |
+| T10 | `sp500` | 15 | 2 | off | SHORT |
+| T11 | `sp500` | 15 | 2 | off | MEDIUM |
+| T12 | `sp500` | 15 | 2 | off | LONG |
+
+---
+
+### 03.29.4 Zu messende Kennzahlen
+
+Jeder Lauf soll mindestens folgende Werte enthalten:
+
+| Kennzahl | Zweck |
+|---|---|
+| Total Return | Gesamtrendite |
+| CAGR | annualisierte Rendite |
+| Alpha | Benchmark-Abstand |
+| Max Drawdown | Risiko |
+| Volatilität | Schwankung |
+| Sharpe Ratio | Rendite-Risiko-Verhältnis |
+| Turnover | wichtigste Zielkennzahl dieser Testreihe |
+| Trades Count | operativer Aufwand |
+| Avg Positions | Kontrolle der Positionsanzahl |
+| Benchmark CAGR | Benchmark-Vergleich |
+| Benchmark Drawdown | Benchmark-Risiko |
+| Benchmark Sharpe | Benchmark-Rendite-Risiko |
+| Up Capture Ratio | Teilnahme an positiven Benchmark-Phasen |
+| Down Capture Ratio | Verhalten in negativen Benchmark-Phasen |
+| Max Sector Weight | Sektorstruktur kontrollieren |
+| Dominant Sector | Sektorstruktur kontrollieren |
+| Sector Count | Sektorstreuung kontrollieren |
+
+---
+
+### 03.29.5 Erwartete Interpretation
+
+Mögliche Ergebnisse:
+
+| Beobachtung | Interpretation |
+|---|---|
+| `0.20` reduziert Turnover stark, verliert aber Rendite | zu träge |
+| `0.35` reduziert Turnover bei stabiler Sharpe | möglicher Balanced-Kandidat |
+| `0.50` ähnelt offenem Verhalten | Cap eventuell zu locker |
+| `off` liefert höchste Rendite, aber hohen Turnover | eher offensiv oder operativ teuer |
+| Drawdown steigt bei niedrigem Cap | Strategie kann nicht schnell genug reagieren |
+| Sharpe bleibt stabil trotz niedrigerem Turnover | sehr gutes Signal |
+
+---
+
+### 03.29.6 Entscheidung nach der Testreihe
+
+Nach der Testreihe wird bewertet:
+
+| Frage | Konsequenz |
+|---|---|
+| Gibt es einen Cap mit deutlich niedrigerem Turnover und stabiler Sharpe? | Balanced-Kandidat verbessern |
+| Verschlechtert niedriger Cap die Rendite stark? | Cap nicht zu streng setzen |
+| Ist `off` kaum schlechter beim Turnover? | Cap eventuell unnötig |
+| Reduziert ein Cap Drawdown oder Volatilität? | Risikosteuerung bestätigt |
+| Verändert ein Cap die Sektorstruktur? | prüfen, ob Nebeneffekte entstehen |
+
+---
+
+### 03.29.7 Vorläufiges Fazit
+
+Die `max_turnover_cap`-Testreihe baut direkt auf dem aktuellen Balanced-Kandidat v1 auf.
+
+Ziel ist nicht, maximale Rendite zu finden, sondern die praktische Handelbarkeit zu verbessern.
+
+Der wichtigste Zielkonflikt lautet:
+
+> Weniger Umschichtung, ohne Rendite, Sharpe und Drawdown deutlich zu verschlechtern.
+
+Wenn ein Turnover-Cap diese Balance verbessert, wird daraus der nächste Balanced-Kandidat v2.
+
+
+## 03.31 Balanced-Kandidat v2 festlegen
+
+Nach der `max_turnover_cap`-Testreihe wird der bisherige Balanced-Kandidat v1 zu einem Balanced-Kandidat v2 erweitert.
+
+Wichtig:
+
+`max_turnover_cap` wirkt in der aktuellen Implementierung als Effektivturnover- beziehungsweise Kosten-Cap. Es handelt sich nicht um eine echte Handels- oder Rebalance-Bremse.
+
+Das Portfolio, die Anzahl der Trades und die Sektorstruktur bleiben dadurch unverändert. Verändert werden der gemessene effektive Turnover, die Kostenwirkung und dadurch leicht die Performance-Kennzahlen.
+
+---
+
+### 03.31.1 Ausgangspunkt: Balanced-Kandidat v1
+
+Der bisherige Balanced-Kandidat v1 lautete:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| Benchmark | `SXR8.DE` |
+
+Dieser Kandidat wurde aus den bisherigen Tests abgeleitet:
+
+| Testbereich | Ergebnis |
+|---|---|
+| Universe-Test | `sp500` bietet mehr Renditepotenzial als `sp500_top100` |
+| `top_k`-Test | `top_k=15` ist der beste Balanced-Kompromiss |
+| Sektorlimit-Test | `max_per_sector=2` ist für Balanced/Risk-Control am stärksten |
+| Sektor-Metriken | `max_per_sector=2` reduziert Klumpenrisiko deutlich |
+
+---
+
+### 03.31.2 Ergebnis der max_turnover_cap-Testreihe
+
+Getestet wurden:
+
+| Variante | `max_turnover_cap` |
+|---|---:|
+| sehr ruhig | 0.20 |
+| ausgewogen | 0.35 |
+| flexibel | 0.50 |
+| off | deaktiviert / 0.0 |
+
+Die Testreihe zeigte:
+
+| Profil | Bester Kandidat |
+|---|---|
+| SHORT | `max_turnover_cap=0.20` |
+| MEDIUM | `max_turnover_cap=0.20` |
+| LONG | `max_turnover_cap=0.20` |
+
+`max_turnover_cap=0.20` gewann in allen Profilen bei:
+
+- Return
+- Max Drawdown
+- Sharpe Ratio
+- niedrigstem Turnover
+
+---
+
+### 03.31.3 Kennzahlen von max_turnover_cap=0.20
+
+| Profil | Total Return | CAGR | Alpha | Max Drawdown | Sharpe | Turnover | Trades |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| SHORT | 10.16% | 24.55% | -23.22% | -7.96% | 1.46 | 20.00% | 8 |
+| MEDIUM | 36.51% | 24.13% | +8.77% | -22.12% | 1.02 | 18.48% | 20 |
+| LONG | 64.63% | 13.48% | +2.31% | -22.12% | 0.69 | 16.78% | 50 |
+
+Die Sektorstruktur blieb stabil:
+
+| Kennzahl | Wert |
+|---|---|
+| Max Sector Weight | 22.22% |
+| Dominant Sector | Consumer Discretionary |
+| Sector Count | 7 |
+
+---
+
+### 03.31.4 Balanced-Kandidat v2
+
+Der neue Balanced-Kandidat v2 lautet:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| `max_turnover_cap` | 0.20 |
+| Benchmark | `SXR8.DE` |
+
+Kurzform:
+
+```toml
+universe = "sp500"
+top_k = 15
+use_sector_limits = true
+max_per_sector = 2
+max_turnover_cap = 0.20
+benchmark_ticker = "SXR8.DE"
+```
+
+
+## 03.32 Parameter-Testreihe: Regime/Cash
+
+Nach Festlegung des Balanced-Kandidat v2 wird als nächster Bereich das Regime- und Cash-Verhalten untersucht.
+
+Ausgangspunkt ist der aktuelle Balanced-Kandidat v2:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| `max_turnover_cap` | 0.20 |
+| Benchmark | `SXR8.DE` |
+| Profilziel | Balanced |
+
+---
+
+### 03.32.1 Ziel der Testreihe
+
+Die Testreihe soll prüfen, ob Regime- und Cash-Logik den Drawdown weiter verbessern kann.
+
+Wichtige Fragen:
+
+| Frage | Zweck |
+|---|---|
+| Reduziert ein SMA-/Regime-Filter den Max Drawdown? | Risikosteuerung |
+| Kostet der Regime-Filter zu viel Rendite? | Renditeverlust bewerten |
+| Verbessert Cash das Verhalten in schlechten Marktphasen? | defensive Wirkung prüfen |
+| Verschlechtert Cash die Erholungsphasen? | Opportunitätskosten prüfen |
+| Bleibt die Sharpe Ratio stabil oder verbessert sie sich? | Qualität prüfen |
+| Wie stark verändert sich die Time-in-Market? | Investitionsgrad verstehen |
+| Wird der Kandidat konservativer oder bleibt er Balanced? | Profilgrenze bestimmen |
+
+---
+
+### 03.32.2 Zu testende Varianten
+
+Die genaue Config-Logik soll vor Umsetzung im Code geprüft werden. Vorläufig werden folgende Varianten betrachtet:
+
+| Variante | `require_above_sma` | `regime_below_action` | `include_cash` | Charakter |
+|---|---|---|---|---|
+| defensiv_cash | true | SELL | true | bei negativem Regime in Cash |
+| defensiv_hold | true | HOLD | false | bei negativem Regime Positionen halten / keine neue aggressive Anpassung |
+| immer_investiert | false | n/a | false | kein Regime-Filter, Referenz |
+| cash_variante | false | n/a | true | nur sinnvoll, wenn logisch sauber unterstützt |
+
+Wichtig:
+
+Die tatsächlichen Werte müssen an die bestehende Config- und Code-Logik angepasst werden. Wenn einzelne Kombinationen fachlich oder technisch unsauber sind, sollen sie nicht erzwungen werden.
+
+---
+
+### 03.32.3 Referenz
+
+Die Referenz ist der Balanced-Kandidat v2 ohne zusätzliche Regime-Verschärfung beziehungsweise mit der aktuell gültigen Standard-Regime-Konfiguration.
+
+Vor dem Test muss Codex prüfen:
+
+| Punkt | Frage |
+|---|---|
+| `require_above_sma` | aktueller Standardwert? |
+| `regime_below_action` | erlaubte Werte? |
+| `include_cash` | aktueller Standardwert? |
+| `cash_yield_annual` | wird Cash verzinst? |
+| Benchmark für Regime | welcher Index wird verwendet? |
+| Regime-SMA | welcher Zeitraum, z. B. 200 Tage? |
+
+---
+
+### 03.32.4 Testmatrix Regime/Cash
+
+Für jede gültige Variante sollen SHORT, MEDIUM und LONG getestet werden.
+
+| Test | Universe | top_k | max_per_sector | max_turnover_cap | Regime/Cash-Variante | Zeitraum |
+|---|---|---:|---:|---:|---|---|
+| R1 | `sp500` | 15 | 2 | 0.20 | defensiv_cash | SHORT |
+| R2 | `sp500` | 15 | 2 | 0.20 | defensiv_cash | MEDIUM |
+| R3 | `sp500` | 15 | 2 | 0.20 | defensiv_cash | LONG |
+| R4 | `sp500` | 15 | 2 | 0.20 | defensiv_hold | SHORT |
+| R5 | `sp500` | 15 | 2 | 0.20 | defensiv_hold | MEDIUM |
+| R6 | `sp500` | 15 | 2 | 0.20 | defensiv_hold | LONG |
+| R7 | `sp500` | 15 | 2 | 0.20 | immer_investiert | SHORT |
+| R8 | `sp500` | 15 | 2 | 0.20 | immer_investiert | MEDIUM |
+| R9 | `sp500` | 15 | 2 | 0.20 | immer_investiert | LONG |
+
+Optional nur, wenn sauber unterstützt:
+
+| Test | Variante |
+|---|---|
+| R10–R12 | cash_variante |
+
+---
+
+### 03.32.5 Zu messende Kennzahlen
+
+Jeder Lauf soll mindestens enthalten:
+
+| Kennzahl | Zweck |
+|---|---|
+| Total Return | Gesamtrendite |
+| CAGR | annualisierte Rendite |
+| Alpha | Benchmark-Abstand |
+| Max Drawdown | wichtigste Risikokennzahl |
+| Volatility | Schwankung |
+| Sharpe Ratio | Rendite-Risiko |
+| Turnover | Handelbarkeit |
+| Trades Count | operativer Aufwand |
+| Benchmark CAGR | Vergleichsrendite |
+| Benchmark Drawdown | Vergleichsrisiko |
+| Benchmark Sharpe | Benchmark-Rendite-Risiko |
+| Up Capture Ratio | Teilnahme an positiven Benchmark-Phasen |
+| Down Capture Ratio | Verhalten in negativen Benchmark-Phasen |
+| Max Sector Weight | Sektorstruktur kontrollieren |
+| Dominant Sector | Sektorstruktur kontrollieren |
+| Sector Count | Sektorstreuung kontrollieren |
+
+Zusätzlich wären für diese Testreihe besonders wichtig:
+
+| Kennzahl | Zweck |
+|---|---|
+| Average Cash % | durchschnittlicher Cash-Anteil |
+| Max Cash % | maximale defensive Quote |
+| Time in Market % | Investitionsgrad |
+| Time in Cash % | defensive Zeit |
+| Regime Off Count | Anzahl negativer Regime-Phasen |
+| Regime Switch Count | Häufigkeit von Regimewechseln |
+
+Falls diese Kennzahlen noch nicht im Reporting vorhanden sind, sollen sie als TODO aufgenommen oder, wenn klein umsetzbar, ergänzt werden.
+
+---
+
+### 03.32.6 Erwartete Interpretation
+
+Mögliche Ergebnisse:
+
+| Beobachtung | Interpretation |
+|---|---|
+| defensiv_cash reduziert Drawdown deutlich, CAGR bleibt stabil | starker Conservative/Balanced-Kandidat |
+| defensiv_cash reduziert Drawdown, kostet aber stark Rendite | eher Conservative |
+| defensiv_hold verändert wenig | Regime-Filter nicht wirksam genug |
+| immer_investiert liefert deutlich mehr Rendite bei höherem Drawdown | eher Offensive/Balanced ohne Schutz |
+| Cash-Quote sehr hoch, Rendite schwach | zu defensiv |
+| Down Capture sinkt deutlich | defensiver Mehrwert plausibel |
+| Up Capture fällt stark | Schutz zu teuer erkauft |
+
+---
+
+### 03.32.7 Entscheidung nach der Testreihe
+
+Nach der Testreihe wird bewertet:
+
+| Frage | Konsequenz |
+|---|---|
+| Gibt es eine Variante mit deutlich besserem Drawdown und stabiler Sharpe? | Balanced v3 prüfen |
+| Kostet Regime/Cash zu viel Rendite? | eher Conservative statt Balanced |
+| Bleibt der aktuelle v2-Kandidat besser? | Regime/Cash nicht priorisieren |
+| Verbessert Cash nur SHORT, aber nicht LONG? | Zeitraumabhängigkeit dokumentieren |
+| Gibt es starke Unterschiede bei Up/Down Capture? | Profilcharakter schärfen |
+
+---
+
+### 03.32.8 Vorläufiges Fazit
+
+Die Regime-/Cash-Testreihe ist der nächste logische Schritt, weil der aktuelle Balanced-Kandidat v2 bereits eine gute Sektorstruktur und einen reduzierten effektiven Turnover besitzt.
+
+Jetzt soll geprüft werden, ob sich der Drawdown zusätzlich über Marktregime und Cash-Verhalten verbessern lässt.
+
+Wichtig ist dabei, nicht nur die Rendite zu betrachten, sondern besonders:
+
+- Max Drawdown
+- Down Capture
+- Sharpe Ratio
+- Time in Market
+- Cash-Anteil
+- Opportunitätskosten durch verpasste Erholungsphasen
+
+
+## 03.34 Regime/Cash-Testmatrix ausgewertet
+
+Die Regime/Cash-Testmatrix wurde auf Basis des Balanced-Kandidaten v2 durchgeführt.
+
+Ausgangskonfiguration:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| `max_turnover_cap` | 0.20 |
+| Benchmark | `SXR8.DE` |
+
+Getestete Varianten:
+
+| Variante | `require_above_sma` | `regime_below_action` | `include_cash` |
+|---|---|---|---|
+| `defensiv_cash` | true | SELL | true |
+| `defensiv_hold` | true | HOLD | false |
+| `immer_investiert` | false | HOLD | false |
+
+Die Variante `cash_variante` wurde übersprungen, weil `include_cash=true` ohne aktive SELL-Regime-Transition in der aktuellen Logik keinen sauberen Effekt hat.
+
+### Ergebnisübersicht LONG
+
+| Variante | CAGR | Alpha | Max Drawdown | Volatility | Sharpe | Down Capture |
+|---|---:|---:|---:|---:|---:|---:|
+| `defensiv_cash` | 13.48% | +2.31% | -22.12% | 21.96% | 0.6900 | 0.3812 |
+| `defensiv_hold` | 21.50% | +10.33% | -25.25% | 24.05% | 0.9300 | 0.4774 |
+| `immer_investiert` | 24.32% | +13.15% | -29.63% | 26.85% | 0.9500 | 0.5430 |
+
+### Interpretation
+
+`defensiv_cash` reduziert den Drawdown am stärksten, kostet aber deutlich Rendite und Sharpe. Diese Variante wirkt daher eher wie ein Conservative-Kandidat.
+
+`immer_investiert` liefert die höchste Rendite, hat aber den deutlich höchsten Drawdown. Diese Variante ist eher offensiv.
+
+`defensiv_hold` liegt zwischen beiden Extremen. Es hält die Rendite deutlich höher als `defensiv_cash`, reduziert aber das Risiko gegenüber `immer_investiert`. Damit ist `defensiv_hold` der interessanteste Balanced-Kandidat aus dieser Testreihe.
+
+### Vorläufige Profil-Einordnung
+
+| Profil | Kandidat |
+|---|---|
+| Conservative | `defensiv_cash` |
+| Balanced | `defensiv_hold` |
+| Offensive | `immer_investiert` |
+
+### Fazit
+
+Die Regime/Cash-Testreihe führt nicht zu einem besseren Balanced-Kandidaten durch Cash, sondern zu einer klareren Profiltrennung.
+
+Für Balanced wird `defensiv_hold` als neuer Kandidat vorgemerkt.
+
+Für Conservative wird `defensiv_cash` vorgemerkt.
+
+Für Offensive wird `immer_investiert` vorgemerkt.
+
+
+## 03.35 Profilstruktur v1 aus bisherigen Tests ableiten
+
+Nach den bisherigen Sensitivitätsanalysen wird eine erste Profilstruktur abgeleitet.
+
+Diese Profile sind noch keine finalen Live-Konfigurationen, sondern erste reproduzierbare Kandidaten für den nächsten Profilvergleich.
+
+---
+
+### 03.35.1 Bisherige Erkenntnisse
+
+| Testbereich | Ergebnis |
+|---|---|
+| Universe-Vergleich | `sp500_top100` ist defensiver, `sp500` hat mehr Renditepotenzial |
+| `top_k` | `top_k=15` ist auf `sp500` der stärkste Balanced-Kompromiss |
+| `max_per_sector` | `max_per_sector=2` verbessert Risiko und Sektorstreuung deutlich |
+| Sektor-Metriken | `sector_off` ist stark auf Information Technology konzentriert und daher nicht Balanced |
+| `max_turnover_cap` | `0.20` reduziert den effektiven Turnover deutlich, wirkt aktuell aber als Kosten-/Effektivturnover-Cap |
+| Regime/Cash | trennt die Profile klar in defensiv, ausgewogen und offensiv |
+
+---
+
+### 03.35.2 Gemeinsame Basis der Profile
+
+Alle drei ersten Profilkandidaten verwenden zunächst dieselbe strategische Basis:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| `max_turnover_cap` | 0.20 |
+| Benchmark | `SXR8.DE` |
+| `cash_yield_annual` | 0.00 |
+| `regime_sma_days` | 200 |
+
+Begründung:
+
+Diese Basis entstand aus den bisherigen Tests als bester Kompromiss aus Rendite, Risiko, Sektorstreuung und effektivem Turnover.
+
+---
+
+### 03.35.3 Conservative v1
+
+| Parameter | Wert |
+|---|---|
+| `require_above_sma` | true |
+| `regime_below_action` | SELL |
+| `include_cash` | true |
+
+Kurzform:
+
+```toml
+profile = "conservative"
+universe = "sp500"
+top_k = 15
+use_sector_limits = true
+max_per_sector = 2
+max_turnover_cap = 0.20
+require_above_sma = true
+regime_below_action = "SELL"
+include_cash = true
+cash_yield_annual = 0.00
+regime_sma_days = 200
+benchmark_ticker = "SXR8.DE"
+```
+
+## 03.37 Profilvergleich v1 auswerten und Profilstruktur bestätigen
+
+Die Profilvergleichs-Matrix v1 wurde erfolgreich erzeugt.
+
+Getestet wurden drei Profilkandidaten:
+
+| Profil | `require_above_sma` | `regime_below_action` | `include_cash` |
+|---|---|---|---|
+| Conservative v1 | true | SELL | true |
+| Balanced v1 | true | HOLD | false |
+| Offensive v1 | false | HOLD | false |
+
+Gemeinsame Basis aller Profile:
+
+| Parameter | Wert |
+|---|---|
+| Universe | `sp500` |
+| `top_k` | 15 |
+| `use_sector_limits` | true |
+| `max_per_sector` | 2 |
+| `max_turnover_cap` | 0.20 |
+| `cash_yield_annual` | 0.00 |
+| `regime_sma_days` | 200 |
+| Benchmark | `SXR8.DE` |
+
+Die Profilvergleichs-Matrix wurde unter `reports/strategy_analysis/profile_compare_v1/profile_compare_v1_summary.md` erzeugt. Alle 9 Läufe waren erfolgreich; die Tests liefen mit `81 passed`. :contentReference[oaicite:0]{index=0}
+
+---
+
+### 03.37.1 Ergebnisübersicht LONG
+
+| Profil | CAGR | Alpha | Max Drawdown | Volatility | Sharpe | Turnover | Time in Cash |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Conservative v1 | 13.48% | +2.31% | -22.12% | 21.96% | 0.6900 | 16.78% | 24.49% |
+| Balanced v1 | 21.50% | +10.33% | -25.25% | 24.05% | 0.9300 | 14.74% | 0.00% |
+| Offensive v1 | 24.32% | +13.15% | -29.63% | 26.85% | 0.9500 | 19.64% | 0.00% |
+
+---
+
+### 03.37.2 Ergebnisübersicht MEDIUM
+
+| Profil | CAGR | Alpha | Max Drawdown | Volatility | Sharpe | Turnover | Time in Cash |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Conservative v1 | 24.13% | +8.77% | -22.12% | 24.17% | 1.0200 | 18.48% | 10.53% |
+| Balanced v1 | 29.13% | +13.77% | -25.25% | 25.36% | 1.1400 | 17.43% | 0.00% |
+| Offensive v1 | 33.85% | +18.49% | -29.63% | 27.89% | 1.1900 | 19.53% | 0.00% |
+
+---
+
+### 03.37.3 Interpretation
+
+Die Profilstruktur wird in MEDIUM und LONG klar bestätigt.
+
+| Profil | Beobachtung | Bewertung |
+|---|---|---|
+| Conservative v1 | niedrigster Drawdown, Cash-Anteil, geringere Rendite | defensiver Charakter bestätigt |
+| Balanced v1 | liegt zwischen Conservative und Offensive | Balanced-Charakter bestätigt |
+| Offensive v1 | höchste Rendite, höchster Drawdown | offensiver Charakter bestätigt |
+
+Besonders im LONG-Zeitraum entsteht eine saubere Staffelung:
+
+| Profil | Rendite | Risiko |
+|---|---|---|
+| Conservative v1 | niedrigste Rendite | niedrigster Drawdown |
+| Balanced v1 | mittlere Rendite | mittlerer Drawdown |
+| Offensive v1 | höchste Rendite | höchster Drawdown |
+
+Damit erfüllt die Profilstruktur v1 grundsätzlich ihren Zweck.
+
+---
+
+### 03.37.4 SHORT-Einschränkung
+
+Im SHORT-Zeitraum trennt sich die Profilstruktur nicht sauber.
+
+Auffällig ist:
+
+| Profil | CAGR | Max Drawdown | Sharpe |
+|---|---:|---:|---:|
+| Conservative v1 | 24.55% | -7.96% | 1.4600 |
+| Balanced v1 | 24.63% | -7.96% | 1.4600 |
+| Offensive v1 | 47.84% | -7.92% | 2.1200 |
+
+Im SHORT-Zeitraum gewinnt `Offensive v1` sogar minimal beim Drawdown und deutlich bei Rendite und Sharpe.
+
+Das wird vorläufig nicht als strukturelles Signal gewertet, sondern als Zeitraum-Effekt.
+
+Bewertung:
+
+> Der SHORT-Zeitraum ist zu kurz, um die defensive Abstufung zuverlässig zu beurteilen.
+
+Für die Profilbewertung sind MEDIUM und LONG belastbarer.
+
+---
+
+### 03.37.5 Sektorstruktur
+
+Die Sektorstruktur bleibt über alle Profile hinweg kontrolliert:
+
+| Kennzahl | Wert |
+|---|---:|
+| Max Sector Weight | ca. 22.22% |
+| Sector Count | 7 |
+| Dominant Sector | Consumer Discretionary |
+
+Damit entstehen die Profilunterschiede nicht durch wechselnde Sektorkonzentration, sondern hauptsächlich durch Regime-/Cash-Verhalten.
+
+Das ist positiv, weil die Profile dadurch fachlich sauberer vergleichbar bleiben.
+
+---
+
+### 03.37.6 Profilstruktur v1 bestätigt
+
+Die Profilstruktur v1 wird für die weitere Arbeit bestätigt:
+
+| Profil | Status | Begründung |
+|---|---|---|
+| Conservative v1 | bestätigt | bester Drawdown, Cash-Schutz, geringere Rendite |
+| Balanced v1 | bestätigt | guter Mittelweg aus Rendite und Risiko |
+| Offensive v1 | bestätigt | höchste Rendite, höheres Risiko |
+
+Mit Einschränkung:
+
+> Die Bestätigung gilt vor allem für MEDIUM und LONG.  
+> SHORT bleibt als Zeitraum-Sonderfall zu behandeln.
+
+---
+
+### 03.37.7 Aktuelle Profilkonfigurationen
+
+#### Conservative v1
+
+```toml
+profile = "conservative"
+universe = "sp500"
+top_k = 15
+use_sector_limits = true
+max_per_sector = 2
+max_turnover_cap = 0.20
+require_above_sma = true
+regime_below_action = "SELL"
+include_cash = true
+cash_yield_annual = 0.00
+regime_sma_days = 200
+benchmark_ticker = "SXR8.DE"
+```
+
+
+### 03.39 Profil-Config-Dateien v1 angelegt und validiert
+
+Die Profilstruktur v1 wurde in eigene versionierbare Profil-Dateien überführt.
+
+#### Angelegt wurden:
+
+configs/profiles/conservative_v1.toml
+configs/profiles/balanced_v1.toml
+configs/profiles/offensive_v1.toml
+
+Die Profilvergleichs-Matrix lädt diese Profile nun aus den TOML-Dateien. Daraus werden interne StrategyProfile-Objekte erzeugt, die als Overlay auf backtest_config.toml und configs/runner_config.toml angewendet werden.
+
+#### Validierung:
+
+TOML wird mit tomllib geparst.
+Alle Pflichtfelder werden geprüft.
+regime_below_action erlaubt nur SELL oder HOLD.
+Unbekannte Universes werden klar abgelehnt.
+Die echten Config-Dateien werden nach dem Lauf wiederhergestellt.
+
+#### Testergebnis:
+
+test_run_profile_compare_v1.py: 5 passed
+Gesamttests: 84 passed
+Ruff: All checks passed
+
+Die neu erzeugte Profilvergleichs-Matrix stimmt mit der vorherigen Profilvergleichs-Serie in Config-Werten und Kernmetriken für alle 9 Läufe überein. Unterschiede bestehen nur in neuen Run IDs und Zeitstempeln.
+
+Damit ist die Profilstruktur v1 reproduzierbar aus Profil-Dateien ableitbar.
+
+
+### 03.40 Profil-Runner / Agent-Integration vorbereiten
+
+Nach dem Anlegen und Validieren der Profil-Dateien soll die Profilnutzung in die operative Ausführung vorbereitet werden.
+
+Bisher liegen die Profile als Overlay-Dateien vor:
+
+configs/profiles/conservative_v1.toml
+configs/profiles/balanced_v1.toml
+configs/profiles/offensive_v1.toml
+
+Die Profilvergleichs-Matrix lädt diese Dateien bereits erfolgreich und erzeugt daraus reproduzierbare Läufe.
+
+Der nächste Schritt ist, diese Profil-Dateien auch für normale Backtester-/Runner-/Agentenläufe nutzbar zu machen.
+
+### 03.40.1 Ziel
+
+Künftig soll ein Lauf nicht nur über technische Config-Dateien gesteuert werden, sondern zusätzlich über ein benanntes Strategieprofil.
+
+Beispiel-Zielbild:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v1
+```
+
+oder alternativ:
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile configs/profiles/balanced_v1.toml
+```
+
+Damit kann der Agent später gezielt Profile vergleichen oder ausführen, ohne einzelne Strategieparameter manuell zu setzen.
+
+### 03.40.2 Warum das wichtig ist
+
+Die Profil-Dateien schaffen eine klare Trennung:
+
+Ebene	Zweck
+Backtest-/Runner-Config	technische Laufparameter, Pfade, Zeitraum, Dumps
+Profil-Config	fachliche Strategieparameter
+Agent	wählt Profil und Laufmodus aus
+
+Dadurch wird das System besser steuerbar und reproduzierbarer.
+
+### 03.40.3 Gewünschtes Verhalten
+
+Ein Profil-Run soll:
+
+Profil-Datei laden
+Profil validieren
+Profilwerte als Overlay auf Backtest-/Runner-Config anwenden
+Backtester und Runner mit identischer Profilbasis starten
+Run-Manifest um Profilinformationen erweitern
+Reports um Profilinformationen ergänzen
+Configs nach temporären Overrides wiederherstellen
+bestehende Parität nicht brechen
+03.40.4 Profilinformationen im Manifest
+
+Künftig sollte im Run-Manifest erkennbar sein:
+
+Feld	Beispiel
+strategy_profile_name	balanced_v1
+strategy_profile_label	Balanced v1
+strategy_profile_file	configs/profiles/balanced_v1.toml
+universe	sp500
+top_k	15
+max_per_sector	2
+max_turnover_cap	0.20
+require_above_sma	true
+regime_below_action	HOLD
+include_cash	false
+
+Damit ist später nachvollziehbar, mit welchem Profil ein Lauf erzeugt wurde.
+
+### 03.40.5 Noch nicht tun
+
+In diesem Schritt soll noch keine neue Strategie optimiert werden.
+
+Nicht ändern:
+
+Auswahl-Logik
+Scoring-Logik
+Rebalance-Logik
+Finalisierung
+Decision-Bundle-Struktur
+Kostenlogik
+Turnover-Cap-Interpretation
+
+Es geht nur darum, die Profilauswahl sauber in den Ausführungsweg vorzubereiten.
+
+
+
+
+### 03.40 Profil-Runner / Agent-Integration umgesetzt
+
+Die Profil-Dateien können nun auch für normale Backtester-/Runner-/Agentenläufe verwendet werden.
+
+| Bereich                         | Ergebnis                                                              |
+| ------------------------------- | --------------------------------------------------------------------- |
+| Profil-Logik                    | ausgelagert nach `scripts/strategy_profiles.py`                       |
+| Runner-Integration              | `scripts/run_bt_run_agent.py` unterstützt `--strategy-profile`        |
+| Profilvergleich                 | `scripts/run_profile_compare_v1.py` nutzt die gemeinsame Profil-Logik |
+| Tests                           | ergänzt in `tests/unit/scripts/test_run_bt_run_agent_manifest.py`     |
+| Strategie-Logik                 | nicht geändert                                                        |
+| Scoring/Rebalance/Finalisierung | nicht geändert                                                        |
+
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v1
+```
+
+Alternativ per Pfad:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile configs/profiles/balanced_v1.toml
+```
+
+#### Unterstützte Profilnamen
+| Profilname        | Datei                                   | Label           |
+| ----------------- | --------------------------------------- | --------------- |
+| `conservative_v1` | `configs/profiles/conservative_v1.toml` | Conservative v1 |
+| `balanced_v1`     | `configs/profiles/balanced_v1.toml`     | Balanced v1     |
+| `offensive_v1`    | `configs/profiles/offensive_v1.toml`    | Offensive v1    |
+
+#### Overlay-Verhalten
+| Punkt               | Umsetzung                                                    |
+| ------------------- | ------------------------------------------------------------ |
+| Config-Verarbeitung | Backtester und Runner erhalten run-spezifische Config-Kopien |
+| Speicherort         | `output_dir/config_overlays/`                                |
+| Originalconfigs     | werden nicht dauerhaft überschrieben                         |
+| Profilwerte         | werden auf Backtester- und Runner-Config gleich angewendet   |
+| Reproduzierbarkeit  | Profilinformationen werden im Manifest gespeichert           |
+
+#### Reporting / Manifest
+
+Die zentrale maschinenlesbare Dokumentation erfolgt in run_manifest.json. Zusätzlich erscheinen die Profilinformationen auch in summary.txt.
+
+| Manifest-Feld            | Bedeutung                      |
+| ------------------------ | ------------------------------ |
+| `strategy_profile_name`  | technischer Profilname         |
+| `strategy_profile_label` | lesbarer Profilname            |
+| `strategy_profile_file`  | verwendete Profil-Datei        |
+| `universe`               | verwendetes Universe           |
+| `top_k`                  | Anzahl Zielpositionen          |
+| `use_sector_limits`      | Sektorbegrenzung aktiv         |
+| `max_per_sector`         | maximales Sektorlimit          |
+| `max_turnover_cap`       | Effektivturnover-/Kosten-Cap   |
+| `require_above_sma`      | Regimefilter aktiv             |
+| `regime_below_action`    | Verhalten bei negativem Regime |
+| `include_cash`           | Cash-Position erlaubt          |
+| `cash_yield_annual`      | angenommene Cash-Verzinsung    |
+| `regime_sma_days`        | SMA-Zeitraum für Regimefilter  |
+| `benchmark_ticker`       | verwendeter Benchmark          |
+
+#### Validierung und Tests
+| Prüfung                                            | Ergebnis  |
+| -------------------------------------------------- | --------- |
+| Profilname lädt `balanced_v1`                      | bestanden |
+| Profilpfad lädt dieselbe Datei                     | bestanden |
+| ungültiger Profilname erzeugt klare Fehlermeldung  | bestanden |
+| ungültige Profil-Datei erzeugt klare Fehlermeldung | bestanden |
+| Overlay wird korrekt angewendet                    | bestanden |
+| Originalconfigs bleiben unverändert                | bestanden |
+| Manifest enthält Profilinformationen               | bestanden |
+| gezielte Tests                                     | 22 passed |
+| Gesamttests                                        | 90 passed |
+
+#### Smoke-Test
+
+```
+..venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1
+```
+
+| Kennzahl                             | Wert              |
+| ------------------------------------ | ----------------- |
+| Run ID                               | `20260531_122722` |
+| success                              | true              |
+| compare_matched                      | true              |
+| Manifest enthält Profilinformationen | ja                |
+| Originalconfigs unverändert          | ja                |
+
+#### Config-Hashes nach dem Smoke-Test
+| Datei                        | Hash                                                               |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `backtest_config.toml`       | `F2A7E8B17521CDB9A86663ADC712E80D8FEDFE766DE90A9DF4A48638FDE34900` |
+| `configs/runner_config.toml` | `4E472B7CE528000A0D4D90D6760C1025C4ADF779D6F50C5581A287A4AF8B1228` |
+
+#### Fazit
+
+Die Profilnutzung für Backtester-/Runner-/Agentenläufe ist vorbereitet.
+
+Die Profile sind nun nicht mehr nur Matrix-Overrides, sondern können direkt über --strategy-profile verwendet werden. Damit ist die Grundlage geschaffen, dass der Agent künftig gezielt Profile wie balanced_v1, conservative_v1 oder offensive_v1 ausführen und vergleichen kann.
+
+### 03.41 Profil-Workflow konsolidieren
+
+Nach der Integration von --strategy-profile können die Strategieprofile nun direkt in normalen Backtester-/Runner-/Agentenläufen verwendet werden.
+
+Die Profile liegen als TOML-Dateien vor:
+
+| Profil          | Datei                                   |
+| --------------- | --------------------------------------- |
+| Conservative v1 | `configs/profiles/conservative_v1.toml` |
+| Balanced v1     | `configs/profiles/balanced_v1.toml`     |
+| Offensive v1    | `configs/profiles/offensive_v1.toml`    |
+
+
+Die Profile können per Name oder per Pfad geladen werden.
+
+### 03.41.1 Einzelnes Profil ausführen
+
+Ein Profil kann direkt über scripts.run_bt_run_agent gestartet werden.
+
+Beispiel Balanced-Profil:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v1
+```
+
+Alternativ per Profil-Dateipfad:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile configs/profiles/balanced_v1.toml
+```
+
+Damit wird das Profil als Overlay auf die normalen Laufconfigs angewendet.
+
+### 03.41.2 Profile vergleichen
+
+Der direkte Vergleich der drei aktuellen Profilkandidaten erfolgt über:
+
+```
+python -m scripts.run_profile_compare_v1
+```
+
+Dieser Lauf erzeugt die Vergleichsreports unter:
+
+```
+reports/strategy_analysis/profile_compare_v1/
+```
+
+Wichtige Summary:
+
+```
+reports/strategy_analysis/profile_compare_v1/profile_compare_v1_summary.md
+```
+
+### 03.41.3 Aktuelle Profilrollen
+| Profil          | Charakter                                  | Einsatzidee                 |
+| --------------- | ------------------------------------------ | --------------------------- |
+| Conservative v1 | defensiv, Cash-Schutz, geringerer Drawdown | Risikoarme Variante         |
+| Balanced v1     | Mittelweg aus Rendite und Risiko           | aktueller Hauptkandidat     |
+| Offensive v1    | höchste Rendite, höherer Drawdown          | Renditeorientierte Variante |
+
+
+Die Profile unterscheiden sich aktuell vor allem durch Regime-/Cash-Verhalten.
+
+| Profil          | `require_above_sma` | `regime_below_action` | `include_cash` |
+| --------------- | ------------------- | --------------------- | -------------- |
+| Conservative v1 | true                | SELL                  | true           |
+| Balanced v1     | true                | HOLD                  | false          |
+| Offensive v1    | false               | HOLD                  | false          |
+
+### 03.41.4 Gemeinsame strategische Basis
+
+Alle drei Profile nutzen aktuell dieselbe Basis:
+
+| Parameter           | Wert      |
+| ------------------- | --------- |
+| Universe            | `sp500`   |
+| `top_k`             | 15        |
+| `use_sector_limits` | true      |
+| `max_per_sector`    | 2         |
+| `max_turnover_cap`  | 0.20      |
+| `cash_yield_annual` | 0.00      |
+| `regime_sma_days`   | 200       |
+| Benchmark           | `SXR8.DE` |
+
+
+Damit bleibt die Sektorstruktur kontrolliert und die Profile sind sauber vergleichbar.
+
+### 03.41.5 Run nachvollziehen
+
+Jeder Lauf mit Strategieprofil schreibt die Profilinformationen in das Run-Manifest.
+
+Zentrale Datei:
+
+```
+run_manifest.json
+```
+
+Dort sollten mindestens folgende Informationen nachvollziehbar sein:
+
+| Manifest-Feld            | Bedeutung                      |
+| ------------------------ | ------------------------------ |
+| `strategy_profile_name`  | technischer Profilname         |
+| `strategy_profile_label` | lesbarer Profilname            |
+| `strategy_profile_file`  | verwendete Profil-Datei        |
+| `universe`               | verwendetes Universe           |
+| `top_k`                  | Anzahl Zielpositionen          |
+| `use_sector_limits`      | Sektorbegrenzung aktiv         |
+| `max_per_sector`         | maximales Sektorlimit          |
+| `max_turnover_cap`       | Effektivturnover-/Kosten-Cap   |
+| `require_above_sma`      | Regimefilter aktiv             |
+| `regime_below_action`    | Verhalten bei negativem Regime |
+| `include_cash`           | Cash-Position erlaubt          |
+| `cash_yield_annual`      | angenommene Cash-Verzinsung    |
+| `regime_sma_days`        | SMA-Zeitraum für Regimefilter  |
+| `benchmark_ticker`       | verwendeter Benchmark          |
+
+
+Damit bleibt ein Lauf auch später nachvollziehbar.
+
+### 03.41.6 Neues Profil anlegen
+
+Ein neues Profil entsteht künftig durch eine neue TOML-Datei unter:
+
+```
+configs/profiles/
+```
+
+Beispiel:
+
+```
+configs/profiles/balanced_v2.toml
+```
+
+Danach kann das Profil direkt verwendet werden:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v2
+```
+
+Wichtig:
+
+Ein neues Profil sollte nicht durch freie Einzelparameter entstehen, sondern aus einer dokumentierten Analyse oder Testmatrix abgeleitet werden.
+
+### 03.41.7 Profiländerungen testen
+
+Wenn ein Profil geändert oder neu angelegt wird, sollte mindestens geprüft werden:
+
+| Prüfung                      | Zweck                     |
+| ---------------------------- | ------------------------- |
+| TOML-Datei gültig            | Syntaxfehler vermeiden    |
+| Pflichtfelder vorhanden      | Profil vollständig        |
+| Profilname eindeutig         | keine Verwechslung        |
+| Smoke-Test läuft             | technische Ausführbarkeit |
+| `compare_matched=true`       | BT/RUN-Parität erhalten   |
+| Manifest enthält Profilinfos | Reproduzierbarkeit        |
+| Tests grün                   | technische Sicherheit     |
+
+
+Empfohlener Smoke-Test:
+
+```
+python -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1
+```
+
+### 03.41.8 Rolle des Agenten
+
+Der Agent kann künftig Profile als Steuerparameter verwenden.
+
+Statt einzelne Strategieparameter zu verändern, kann der Agent gezielt sagen:
+
+| Aufgabe                  | Profil            |
+| ------------------------ | ----------------- |
+| defensive Prüfung        | `conservative_v1` |
+| Standard-/Balanced-Lauf  | `balanced_v1`     |
+| Renditeorientierter Lauf | `offensive_v1`    |
+| Profilvergleich          | alle Profile      |
+| neue Variante testen     | neues Profilfile  |
+
+
+Damit wird die Agentensteuerung robuster, weil Profile klar benannt und versioniert sind.
+
+### 03.41.9 Aktueller empfohlener Standard
+
+Der aktuelle Hauptkandidat bleibt:
+
+```
+balanced_v1
+```
+
+Begründung:
+
+| Kriterium      | Bewertung                                   |
+| -------------- | ------------------------------------------- |
+| Rendite        | deutlich stärker als Conservative           |
+| Drawdown       | niedriger als Offensive                     |
+| Sharpe         | nahe an Offensive                           |
+| Turnover       | niedrigster Wert im Profilvergleich         |
+| Sektorstruktur | kontrolliert                                |
+| Cash           | kein dauerhafter Renditeverzicht durch Cash |
+
+
+Balanced v1 ist damit aktuell der beste Kandidat für weitere Robustheits- und Live-Tauglichkeitsprüfungen.
+
+### 03.41.10 Nächste sinnvolle Phase
+
+Nach der Konsolidierung des Profil-Workflows bietet sich als nächste Phase an:
+
+| Nächste Phase                    | Zweck                                              |
+| -------------------------------- | -------------------------------------------------- |
+| Profil-Robustheit / Walk-forward | Prüfen, ob Profile über Zeiträume stabil bleiben   |
+| Weitere Universes                | Prüfen, ob Profile außerhalb `sp500` funktionieren |
+| Live-Tauglichkeit                | Kosten, Slippage, Steuern, echte Handelsbremse     |
+| Agentenautomatisierung           | Profile automatisch laufen lassen und vergleichen  |
+
+
+Damit ist Phase 3 fachlich weitgehend abgeschlossen. Die Profile sind abgeleitet, versioniert, ausführbar und vergleichbar.
+
+
+### 03.42 Offene Punkte und Roadmap für Phase 4
+
+Phase 3 hat aus den bisherigen Strategieanalysen eine erste belastbare Profilstruktur hervorgebracht.
+
+Aktueller Stand:
+
+| Bereich                   | Status         |
+| ------------------------- | -------------- |
+| Universe-Konfiguration    | erledigt       |
+| Run-Vergleich & Reporting | erledigt       |
+| `top_k`-Analyse           | erledigt       |
+| `max_per_sector`-Analyse  | erledigt       |
+| Sektor-Metriken           | ergänzt        |
+| Performance-Cache         | umgesetzt      |
+| Regime/Cash-Analyse       | erledigt       |
+| Profilstruktur v1         | bestätigt      |
+| Profil-Dateien            | angelegt       |
+| Profilvergleich           | reproduzierbar |
+| `--strategy-profile`      | integriert     |
+| Profil-Workflow           | konsolidiert   |
+
+
+Damit ist Phase 3 fachlich weitgehend abgeschlossen.
+
+### 03.42.1 Aktueller Profilstand
+| Profil          | Datei                                   | Rolle                   |
+| --------------- | --------------------------------------- | ----------------------- |
+| Conservative v1 | `configs/profiles/conservative_v1.toml` | defensiv                |
+| Balanced v1     | `configs/profiles/balanced_v1.toml`     | aktueller Hauptkandidat |
+| Offensive v1    | `configs/profiles/offensive_v1.toml`    | renditeorientiert       |
+
+
+Die Profile können direkt ausgeführt werden:
+
+```
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v1
+```
+
+Oder über den Profilvergleich:
+
+```
+python -m scripts.run_profile_compare_v1
+```
+
+### 03.42.2 Wichtigste offene fachliche Fragen
+| Frage                                                      | Bedeutung                  |
+| ---------------------------------------------------------- | -------------------------- |
+| Sind die Profile über weitere Zeiträume stabil?            | Robustheit prüfen          |
+| Funktionieren die Profile auch außerhalb `sp500`?          | Übertragbarkeit prüfen     |
+| Ist `balanced_v1` wirklich live-tauglich?                  | Investierbarkeit prüfen    |
+| Ist `max_turnover_cap` als weicher Kosten-Cap ausreichend? | Handelsrealität prüfen     |
+| Brauchen wir eine echte Handelsbremse?                     | Turnover real begrenzen    |
+| Wie wirken realistischere Kosten, Slippage und Steuern?    | Nettoergebnis prüfen       |
+| Wie stabil ist die Sektorstruktur über die Zeit?           | Klumpenrisiko prüfen       |
+| Wie verhält sich das Profil in Krisenphasen?               | Drawdown-Robustheit prüfen |
+
+### 03.42.3 Offene technische Punkte
+| Punkt                                          | Grund                       |
+| ---------------------------------------------- | --------------------------- |
+| Profil-Overlay weiter zentralisieren           | weniger Duplikate           |
+| Config-Snapshot je Run prüfen                  | Reproduzierbarkeit          |
+| echte Profil-Runs in Agent-Workflow aufnehmen  | Automatisierung             |
+| Testlaufzeit weiter beobachten                 | Entwicklungsgeschwindigkeit |
+| alte Test-/Store-Positions-Failures beobachten | saubere Testbasis           |
+| temporäre Matrix-Skripte ggf. vereinheitlichen | Wartbarkeit                 |
+| Report-Struktur standardisieren                | Vergleichbarkeit            |
+| Run-Artefakte langfristig aufräumen            | Speicher/Übersicht          |
+
+### 03.42.4 Empfohlene Phase 4
+
+Die nächste fachliche Phase sollte sich auf Robustheit konzentrieren.
+
+Vorschlag:
+
+## Phase 4 – Profil-Robustheit & Walk-forward
+
+Ziel:
+
+Die drei Profilkandidaten sollen nicht nur auf den bisherigen SHORT/MEDIUM/LONG-Läufen funktionieren, sondern über zusätzliche Zeiträume und Marktphasen geprüft werden.
+
+### 03.42.5 Phase-4-Arbeitspakete
+| Abschnitt | Thema                                         | Ziel                                     |
+| --------- | --------------------------------------------- | ---------------------------------------- |
+| 04.01     | Robustheitsplan definieren                    | Testlogik festlegen                      |
+| 04.02     | Walk-forward-Zeitfenster festlegen            | Zeitraumabhängigkeit prüfen              |
+| 04.03     | Profilvergleich über mehrere Start-/Endpunkte | Stabilität messen                        |
+| 04.04     | Krisen-/Stressphasen prüfen                   | Drawdown-Verhalten analysieren           |
+| 04.05     | Profil-Ranking über Zeiträume                 | Gewinner nicht nur punktuell bestimmen   |
+| 04.06     | Balanced v1 Robustheitsbewertung              | Hauptkandidat bestätigen oder verwerfen  |
+| 04.07     | Profil v2 ableiten                            | falls nötig neue Profilversion erstellen |
+
+### 03.42.6 Mögliche Walk-forward-Struktur
+
+Eine erste Walk-forward-Struktur könnte so aussehen:
+
+| Test | Zeitraum           | Zweck                         |
+| ---- | ------------------ | ----------------------------- |
+| WF1  | jüngerer Zeitraum  | aktuelles Marktverhalten      |
+| WF2  | mittlerer Zeitraum | jüngere Historie              |
+| WF3  | längerer Zeitraum  | Stabilität über mehrere Jahre |
+| WF4  | Stressphase        | Krisenfestigkeit              |
+| WF5  | Erholungsphase     | Teilnahme an Aufwärtsphasen   |
+
+
+Die genaue technische Umsetzung muss noch festgelegt werden.
+
+Wichtig ist, dass die Profile nicht nur einmalig auf einem günstigen Zeitraum gut aussehen.
+
+### 03.42.7 Mögliche Bewertungslogik für Phase 4
+
+Für jedes Profil sollten je Zeitraum mindestens folgende Werte verglichen werden:
+
+| Kennzahl          | Bedeutung                      |
+| ----------------- | ------------------------------ |
+| CAGR              | Rendite                        |
+| Alpha             | Benchmark-Abstand              |
+| Max Drawdown      | Hauptrisiko                    |
+| Volatility        | Schwankung                     |
+| Sharpe            | Rendite-Risiko                 |
+| Turnover          | Handelbarkeit                  |
+| Down Capture      | Verhalten in fallenden Phasen  |
+| Up Capture        | Teilnahme an steigenden Phasen |
+| Time in Cash      | Defensive Wirkung              |
+| Max Sector Weight | Sektorrisiko                   |
+| Sector Count      | Diversifikation                |
+
+
+Zusätzlich sollte ein Profil nicht nur nach maximaler Rendite bewertet werden, sondern nach Profilziel.
+
+### 03.42.8 Bewertungslogik je Profil
+| Profil       | Primäre Ziele                                                    | Sekundäre Ziele          |
+| ------------ | ---------------------------------------------------------------- | ------------------------ |
+| Conservative | niedriger Drawdown, niedrige Down Capture, geringere Volatilität | akzeptable Rendite       |
+| Balanced     | gutes Verhältnis aus CAGR, Drawdown und Sharpe                   | kontrollierter Turnover  |
+| Offensive    | hohe CAGR und Alpha                                              | Drawdown noch akzeptabel |
+
+
+Damit wird verhindert, dass alle Profile nur nach Rendite bewertet werden.
+
+### 03.42.9 Phase 5 als Ausblick
+
+Nach der Robustheitsphase kann die Agentenautomatisierung stärker ausgebaut werden.
+
+Mögliche Phase 5:
+
+## Phase 5 – Agentensteuerung & Strategieautomatisierung
+| Thema                             | Ziel                   |
+| --------------------------------- | ---------------------- |
+| Agent startet Profil-Runs         | Automatisierung        |
+| Agent vergleicht Profile          | Auswertung             |
+| Agent erkennt schwache Profile    | Warnung                |
+| Agent schlägt neue Testmatrix vor | iterative Verbesserung |
+| Agent erzeugt Strategie-Reports   | Dokumentation          |
+| Agent verwaltet Profilversionen   | Reproduzierbarkeit     |
+
+
+Phase 5 sollte erst starten, wenn Phase 4 zeigt, welche Profile robust genug sind.
+
+### 03.42.10 Vorläufige Entscheidung
+
+Phase 3 kann nach aktuellem Stand als erfolgreich abgeschlossen werden.
+
+Ergebnis:
+
+| Ergebnis                        | Status                           |
+| ------------------------------- | -------------------------------- |
+| Profile abgeleitet              | ja                               |
+| Profile versioniert             | ja                               |
+| Profile ausführbar              | ja                               |
+| Profile vergleichbar            | ja                               |
+| Profilinformationen im Manifest | ja                               |
+| Hauptkandidat identifiziert     | `balanced_v1`                    |
+| nächste Phase klar              | Profil-Robustheit / Walk-forward |
+
+
+Empfehlung:
+
+Als nächstes sollte ein neuer Chat für Phase 4 gestartet werden:
+
+```
+04 – Profil-Robustheit & Walk-forward
+```
+
+Ziel dieses neuen Chats:
+
+Die Profile conservative_v1, balanced_v1 und offensive_v1 über zusätzliche Zeiträume, Marktphasen und Robustheitskriterien prüfen.
+
+
+## 04.10 – Robustheitsplan
+
+Nach Abschluss der bisherigen Phasen ist die Strategie technisch stabil genug, um nicht nur einzelne Backtests zu betrachten, sondern die Robustheit der entwickelten Risikoprofile systematisch zu prüfen.
+
+Bisherige Phasen:
+
+| Phase                                      |   Status | Ergebnis                                    |
+| ------------------------------------------ | -------: | ------------------------------------------- |
+| Phase 1 – Universe-Konfiguration           | erledigt | Universes sind konfigurierbar und validiert |
+| Phase 2 – Run-Vergleich & Reporting        | erledigt | Runs können strukturiert verglichen werden  |
+| Phase 3 – Strategieanalyse & Risikoprofile | erledigt | Drei Risikoprofile wurden definiert         |
+
+Aktuelle Risikoprofile:
+
+| Profil          | Datei                                   | Rolle                   |
+| --------------- | --------------------------------------- | ----------------------- |
+| Conservative v1 | `configs/profiles/conservative_v1.toml` | defensiv                |
+| Balanced v1     | `configs/profiles/balanced_v1.toml`     | aktueller Hauptkandidat |
+| Offensive v1    | `configs/profiles/offensive_v1.toml`    | renditeorientiert       |
+
+Die Profile können über `--strategy-profile` ausgeführt werden.
+
+[CODE_START]
+python -m scripts.run_bt_run_agent --profile medium --strategy-profile balanced_v1
+[CODE_END]
+
+### Ziel der Robustheitsprüfung
+
+Ziel dieser Phase ist es nicht mehr, nur das im bisherigen Vergleich beste Profil zu finden.
+
+Stattdessen soll geprüft werden:
+
+> Welches Profil bleibt auch über zusätzliche Zeiträume, unterschiedliche Marktphasen und strengere Robustheitskriterien stabil?
+
+Dabei steht besonders `balanced_v1` im Fokus, weil dieses Profil aktuell der Hauptkandidat ist. `conservative_v1` und `offensive_v1` dienen als Vergleichsprofile, um die Risiko-/Rendite-Eigenschaften besser einordnen zu können.
+
+### Grundprinzip
+
+Ein Profil gilt nicht deshalb als robust, weil es in einem einzelnen Backtest gut abschneidet.
+
+Ein Profil gilt erst dann als belastbar, wenn es:
+
+* über mehrere Zeiträume akzeptable Ergebnisse liefert,
+* in schwierigen Marktphasen keine unvertretbaren Ausreißer zeigt,
+* im Vergleich zur Benchmark nachvollziehbar abschneidet,
+* Turnover und Handelsaktivität nicht unnötig erhöht,
+* und seine Rolle im Risikoprofil erfüllt.
+
+Das bedeutet:
+
+| Profil            | Erwartung                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `conservative_v1` | geringerer Drawdown, geringere Volatilität, dafür ggf. geringere Rendite               |
+| `balanced_v1`     | guter Kompromiss aus Rendite, Risiko, Turnover und Stabilität                          |
+| `offensive_v1`    | höhere Renditechance, aber nur akzeptabel, wenn Drawdown und Turnover nicht entgleisen |
+
+### Prüfebenen
+
+Die Robustheitsprüfung soll aus mehreren Prüfebenen bestehen.
+
+| Prüfebene           | Zweck                                                              |
+| ------------------- | ------------------------------------------------------------------ |
+| Standard-Zeiträume  | Vergleich über `short`, `medium` und `long`                        |
+| Marktphasen         | Verhalten in Crash-, Erholungs-, Seitwärts- und Trendphasen        |
+| Walk-forward        | Stabilität über mehrere aufeinanderfolgende Stichtage              |
+| Risikoanalyse       | Drawdown, Volatilität, Sharpe, Turnover und Cash-Verhalten         |
+| Benchmark-Vergleich | Einordnung gegenüber SPY/SXR8.DE                                   |
+| Profil-Ranking      | nachvollziehbare Entscheidung, welches Profil Hauptkandidat bleibt |
+
+### Testblock A – Standard-Zeiträume
+
+Im ersten Schritt sollen alle drei Profile über die bestehenden Zeitraumprofile ausgeführt werden.
+
+| Zeitraumprofil | Zweck                                                 |
+| -------------- | ----------------------------------------------------- |
+| `short`        | jüngere Marktphase und schnelle Plausibilitätsprüfung |
+| `medium`       | aktueller Hauptvergleich                              |
+| `long`         | maximale verfügbare Historie und Langfristrobustheit  |
+
+Daraus ergibt sich eine erste Testmatrix:
+
+| Zeitraumprofil | Conservative v1 | Balanced v1 | Offensive v1 |
+| -------------- | --------------: | ----------: | -----------: |
+| `short`        |          prüfen |      prüfen |       prüfen |
+| `medium`       |          prüfen |      prüfen |       prüfen |
+| `long`         |          prüfen |      prüfen |       prüfen |
+
+Diese Matrix ist bewusst einfach gehalten. Sie soll zuerst zeigen, ob eines der Profile bereits über die bekannten Standardzeiträume instabil wirkt.
+
+### Testblock B – Marktphasen
+
+Im zweiten Schritt sollen gezielte Marktphasen betrachtet werden.
+
+Mögliche Marktphasen:
+
+| Marktphase | Typ                         | Zweck                                |
+| ---------- | --------------------------- | ------------------------------------ |
+| 2020       | Crash und schnelle Erholung | Verhalten bei abruptem Markteinbruch |
+| 2022       | Bärenmarkt / Zinsphase      | Verhalten in längerem Stressumfeld   |
+| 2023       | Erholung / Momentumphase    | Verhalten bei starker Markterholung  |
+| 2024/2025  | jüngere Marktphase          | Nähe zur aktuellen Marktsituation    |
+
+Die konkreten Start- und Enddaten sollten erst festgelegt werden, wenn klar ist, welche historischen Daten im Backtester zuverlässig verfügbar sind.
+
+Wichtig ist hier nicht nur die Rendite, sondern besonders:
+
+* maximaler Drawdown,
+* Erholungsverhalten,
+* Cash-Anteil,
+* Turnover,
+* Benchmark-Abstand,
+* und ob das Profil seiner Rolle entspricht.
+
+### Testblock C – Walk-forward
+
+Der Walk-forward-Test soll zunächst bewusst einfach bleiben.
+
+Ziel ist keine automatische Parameteroptimierung, sondern eine Stabilitätsprüfung über mehrere Stichtage.
+
+Grundidee:
+
+| Element   | Beschreibung                                     |
+| --------- | ------------------------------------------------ |
+| Stichtage | mehrere aufeinanderfolgende `as_of`-Zeitpunkte   |
+| Frequenz  | zunächst monatlich oder quartalsweise            |
+| Profile   | `conservative_v1`, `balanced_v1`, `offensive_v1` |
+| Ergebnis  | Kennzahlen je Profil und Stichtag                |
+| Ziel      | prüfen, ob die Profile über Zeit stabil bleiben  |
+
+Beispielhafte Fragestellungen:
+
+* Bleibt `balanced_v1` über mehrere Stichtage der beste Kompromiss?
+* Gibt es Zeitpunkte, an denen `offensive_v1` deutlich zu riskant wird?
+* Liefert `conservative_v1` tatsächlich den erwarteten Schutz?
+* Entstehen Ausreißer bei Turnover, Cash oder Drawdown?
+* Sind die Ergebnisse stark abhängig von einzelnen Start- oder Endpunkten?
+
+### Bewertungslogik
+
+Die Bewertung soll nicht rein renditeorientiert erfolgen.
+
+Stattdessen soll eine Scorecard verwendet werden, die Rendite, Risiko und praktische Handelbarkeit gemeinsam betrachtet.
+
+| Kriterium                          | Bedeutung                                       |
+| ---------------------------------- | ----------------------------------------------- |
+| Total Return / CAGR                | Renditeleistung                                 |
+| Max Drawdown                       | größter Kapitalrückgang                         |
+| Sharpe / risikoadjustierte Rendite | Verhältnis von Rendite zu Schwankung            |
+| Volatilität                        | Schwankungsintensität                           |
+| Turnover                           | Handelsaktivität und Reibung                    |
+| Cash-Anteil                        | Auswirkung der Regime- und Risikosteuerung      |
+| Benchmark-Abstand                  | Vergleich zur passiven Alternative              |
+| Stabilität über Zeiträume          | Robustheit gegen Zeitraumwahl                   |
+| Ausreißer                          | Warnsignal bei einzelnen problematischen Läufen |
+
+Für `balanced_v1` ist das Ziel nicht, in jeder Einzelwertung Platz 1 zu erreichen.
+
+Das Ziel ist:
+
+> möglichst oft gut, selten schlecht, keine gefährlichen Ausreißer.
+
+### Vorläufige Entscheidungsregeln
+
+Die Ergebnisse der Robustheitsprüfung sollen am Ende zu einer nachvollziehbaren Profilentscheidung führen.
+
+| Beobachtung                                                      | Mögliche Konsequenz                               |
+| ---------------------------------------------------------------- | ------------------------------------------------- |
+| `balanced_v1` bleibt über die meisten Tests stabil               | Profil bleibt Hauptkandidat                       |
+| `conservative_v1` ist ähnlich rentabel, aber deutlich stabiler   | Conservative als Alternative ernsthaft prüfen     |
+| `offensive_v1` bringt kaum Mehrertrag, aber deutlich mehr Risiko | Offensive zurückstellen                           |
+| alle Profile zeigen Schwächen in bestimmten Phasen               | gezielte Nachjustierung der Profilparameter       |
+| starke Instabilität im Walk-forward                              | keine Optimierung starten, zuerst Ursachenanalyse |
+
+### Geplante Reihenfolge
+
+Die Umsetzung der Phase 4 soll schrittweise erfolgen.
+
+| Schritt | Inhalt                                                      |
+| ------- | ----------------------------------------------------------- |
+| 04.10   | Robustheitsplan dokumentieren                               |
+| 04.20   | vorhandene Agent-/Compare-Struktur prüfen                   |
+| 04.30   | Profil-Matrix über `short`, `medium`, `long` automatisieren |
+| 04.40   | Markdown-Report für Profilvergleiche erzeugen               |
+| 04.50   | Marktphasen-Konzept ergänzen                                |
+| 04.60   | Walk-forward-Runner planen                                  |
+| 04.70   | Walk-forward-Auswertung erstellen                           |
+| 04.80   | finale Profilentscheidung dokumentieren                     |
+
+### Nächster technischer Schritt
+
+Der erste technische Umsetzungsschritt sollte noch kein vollständiger Walk-forward-Test sein.
+
+Sinnvoller ist zunächst:
+
+> Eine automatisierte Profil-Matrix über `short`, `medium` und `long`, jeweils für `conservative_v1`, `balanced_v1` und `offensive_v1`.
+
+Damit entsteht eine erste belastbare Vergleichsbasis, auf der spätere Marktphasen- und Walk-forward-Analysen aufbauen können.
+
+## 04.20 – Vorhandene Struktur prüfen
+
+Bevor neue Skripte oder Auswertungen gebaut werden, soll geprüft werden, welche bestehende Struktur bereits vorhanden ist und wiederverwendet werden kann.
+
+Ziel ist ausdrücklich:
+
+> Keine neue Parallelstruktur bauen, sondern die bestehende Agent-/Runner-/Compare-Struktur erweitern.
+
+### Vorhandene Bausteine
+
+Aus den bisherigen Phasen stehen bereits mehrere Bausteine zur Verfügung.
+
+| Baustein                   | Zweck                                                        |
+| -------------------------- | ------------------------------------------------------------ |
+| `scripts.run_bt_run_agent` | zentraler Einstieg für Backtest, Runner und Vergleich        |
+| `--profile`                | Auswahl des Zeitraumprofils, z. B. `short`, `medium`, `long` |
+| `--strategy-profile`       | Auswahl des Strategieprofils, z. B. `balanced_v1`            |
+| Profil-Dateien             | TOML-Dateien unter `configs/profiles/`                       |
+| Run-Artefakte              | erzeugte Backtest-/Runner-/Compare-Ergebnisse                |
+| Compare-Logik              | Vergleich von Backtester- und Runner-Ergebnissen             |
+| Markdown-Reports           | bisherige strukturierte Ergebnisdokumentation                |
+
+Damit ist die technische Basis für die Profil-Robustheitsprüfung bereits weitgehend vorhanden.
+
+### Ziel der Prüfung
+
+Codex soll zunächst nicht sofort einen Walk-forward-Runner bauen.
+
+Stattdessen soll geprüft werden:
+
+* Welche vorhandenen Skripte bereits `--strategy-profile` unterstützen.
+* Ob `short`, `medium` und `long` mit allen drei Profilen ausführbar sind.
+* Wo die Run-Ergebnisse gespeichert werden.
+* Ob die vorhandenen Reports ausreichend Kennzahlen enthalten.
+* Ob Profilname und Zeitraumprofil in den erzeugten Artefakten eindeutig dokumentiert werden.
+* Ob bestehende Compare-/Reporting-Funktionen für eine Profil-Matrix wiederverwendet werden können.
+
+### Zu prüfende Profile
+
+| Profil            | Datei                                   |
+| ----------------- | --------------------------------------- |
+| `conservative_v1` | `configs/profiles/conservative_v1.toml` |
+| `balanced_v1`     | `configs/profiles/balanced_v1.toml`     |
+| `offensive_v1`    | `configs/profiles/offensive_v1.toml`    |
+
+### Zu prüfende Zeitraumprofile
+
+| Zeitraumprofil | Zweck                        |
+| -------------- | ---------------------------- |
+| `short`        | schneller Plausibilitätslauf |
+| `medium`       | aktueller Hauptvergleich     |
+| `long`         | Langfristprüfung             |
+
+### Erwartete Testmatrix
+
+Die spätere Robustheitsmatrix soll aus neun Läufen bestehen.
+
+| Zeitraumprofil | Conservative v1 | Balanced v1 | Offensive v1 |
+| -------------- | --------------: | ----------: | -----------: |
+| `short`        |            Lauf |        Lauf |         Lauf |
+| `medium`       |            Lauf |        Lauf |         Lauf |
+| `long`         |            Lauf |        Lauf |         Lauf |
+
+### Mindestanforderung an die Artefakte
+
+Für jeden Lauf sollten mindestens folgende Informationen nachvollziehbar sein:
+
+| Information       | Zweck                                 |
+| ----------------- | ------------------------------------- |
+| `run_id`          | eindeutige Zuordnung                  |
+| Zeitraumprofil    | z. B. `short`, `medium`, `long`       |
+| Strategieprofil   | z. B. `balanced_v1`                   |
+| Universe          | z. B. `sp500` oder `sp500_top100`     |
+| Universe-Hash     | Nachvollziehbarkeit der Datenbasis    |
+| Backtest-Ergebnis | Performance- und Risikokennzahlen     |
+| Runner-Ergebnis   | Paritätsprüfung gegen Backtest        |
+| Compare-Ergebnis  | Aussage, ob BT und RUN übereinstimmen |
+| Report-Pfad       | spätere Weiterverarbeitung            |
+
+### Wichtige Kennzahlen
+
+Für die Profil-Robustheit sind insbesondere folgende Kennzahlen relevant:
+
+| Kennzahl                     | Bedeutung                                     |
+| ---------------------------- | --------------------------------------------- |
+| Total Return                 | Gesamtrendite                                 |
+| CAGR                         | annualisierte Rendite                         |
+| Max Drawdown                 | größter Verlust vom Hoch                      |
+| Sharpe                       | risikoadjustierte Rendite                     |
+| Volatilität                  | Schwankungsintensität                         |
+| Turnover                     | Handelsaktivität                              |
+| Cash-Anteil                  | Wirkung der Risikosteuerung                   |
+| Benchmark Return             | Vergleich zur passiven Anlage                 |
+| Alpha / Relative Performance | Mehr- oder Minderleistung gegenüber Benchmark |
+| Compare matched              | technische Parität BT/RUN                     |
+
+Falls einzelne Kennzahlen in bestehenden Reports noch nicht vorhanden sind, soll Codex zunächst nur feststellen, welche fehlen. Die Erweiterung der Reports kann danach gezielt erfolgen.
+
+### Leitplanken für Codex
+
+Für die Umsetzung gelten folgende Leitplanken:
+
+* Keine Strategie-, Scoring-, Rebalance- oder Finalisierungslogik ändern.
+* Keine bestehende Profil-Logik umbauen, wenn sie bereits funktioniert.
+* Keine neue Parallel-Compare-Logik erstellen.
+* Bestehende Agent-/Report-Struktur bevorzugt wiederverwenden.
+* Neue Funktionen möglichst klein und klar abgrenzen.
+* Profilname und Zeitraumprofil müssen in Reports eindeutig sichtbar sein.
+* Änderungen sollen durch Tests oder zumindest nachvollziehbare Probeläufe abgesichert werden.
+
+### Ergebnis von 04.20
+
+Am Ende dieses Schritts soll klar sein:
+
+1. Welche bestehenden Dateien für die Profil-Matrix genutzt werden können.
+2. Ob `scripts.run_bt_run_agent` als zentraler Einstieg ausreicht.
+3. Welche Kennzahlen bereits verfügbar sind.
+4. Welche Report-Erweiterungen eventuell notwendig sind.
+5. Ob für 04.30 ein neues kleines Wrapper-Skript sinnvoll ist.
+
+### Vorläufige Einschätzung
+
+Die wahrscheinlich sinnvollste Erweiterung ist ein kleines Matrix-Skript, das bestehende Läufe orchestriert.
+
+Möglicher Name:
+
+`python -m scripts.run_profile_robustness_matrix`
+
+Dieses Skript sollte zunächst nur die Kombinationen aus Zeitraumprofil und Strategieprofil ausführen und die Ergebnisse einsammeln.
+
+Die fachliche Logik bleibt dabei vollständig in den bestehenden Komponenten.
+
+## 04.30 – Profil-Robustheitsmatrix
+
+Für die erste technische Robustheitsprüfung wurde ein neues Matrix-Skript erstellt:
+
+[CODE_START]
+scripts/run_profile_robustness_matrix.py
+[CODE_END]
+
+Das Skript führt eine 3x3-Matrix aus Zeitraumprofilen und Strategieprofilen aus.
+
+Zeitraumprofile:
+
+* `short`
+* `medium`
+* `long`
+
+Strategieprofile:
+
+* `conservative_v1`
+* `balanced_v1`
+* `offensive_v1`
+
+Jede Matrix-Zelle wird ausschließlich über den bestehenden zentralen Einstieg ausgeführt:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent --profile <profile> --strategy-profile <strategy_profile>
+[CODE_END]
+
+Wichtig ist, dass keine Config-Dateien temporär mutiert werden. Dadurch entstehen saubere Run-Manifests inklusive der `strategy_profile_*`-Felder.
+
+Das Skript schreibt die Ergebnisse nach:
+
+[CODE_START]
+reports/strategy_analysis/profile_robustness_matrix/
+[CODE_END]
+
+Erzeugte Dateien:
+
+[CODE_START]
+profile_robustness_matrix_summary.md
+profile_robustness_matrix_summary.json
+[CODE_END]
+
+Fehler einzelner Läufe brechen die gesamte Matrix nicht ab, sondern werden pro Matrix-Zelle dokumentiert.
+
+Verifikation:
+
+[CODE_START]
+python -m pytest tests\unit\scripts\test_run_profile_robustness_matrix.py tests\unit\scripts\test_run_profile_compare_v1.py tests\unit\scripts\test_run_bt_run_agent_manifest.py
+[CODE_END]
+
+Ergebnis:
+
+[CODE_START]
+27 passed
+[CODE_END]
+
+Ruff-Prüfung:
+
+[CODE_START]
+python -m ruff check scripts\run_profile_robustness_matrix.py tests\unit\scripts\test_run_profile_robustness_matrix.py
+[CODE_END]
+
+Ergebnis:
+
+[CODE_START]
+All checks passed
+[CODE_END]
+
+Die vollständige 9er-Matrix wurde nach der Implementierung noch nicht automatisch gestartet. Das ist bewusst sinnvoll, da dadurch neun Backtest-/Runner-Läufe ausgelöst werden.
+
+## 04.40 – Auswertung der Profil-Robustheitsmatrix
+
+Nach dem Fix des Multi-Compare-Seed-Verhaltens wurde die vollständige Profil-Robustheitsmatrix erneut ausgeführt.
+
+Die Matrix umfasst:
+
+* 3 Zeitraumprofile
+* 3 Strategieprofile
+* insgesamt 9 Läufe
+
+Zeitraumprofile:
+
+* `short`
+* `medium`
+* `long`
+
+Strategieprofile:
+
+* `conservative_v1`
+* `balanced_v1`
+* `offensive_v1`
+
+### Technischer Status
+
+Die erneute Matrixausführung war vollständig erfolgreich.
+
+| Kennzahl              | Ergebnis |
+| --------------------- | -------: |
+| Läufe gesamt          |        9 |
+| Erfolgreiche Läufe    |        9 |
+| Fehlgeschlagene Läufe |        0 |
+| Compare-Mismatches    |        0 |
+
+Damit ist die BT/RUN-Parität für alle getesteten Kombinationen hergestellt.
+
+### Ausgeführte Matrix
+
+| Zeitraumprofil | Strategieprofil   | Compare matched |
+| -------------- | ----------------- | --------------: |
+| `short`        | `conservative_v1` |            true |
+| `short`        | `balanced_v1`     |            true |
+| `short`        | `offensive_v1`    |            true |
+| `medium`       | `conservative_v1` |            true |
+| `medium`       | `balanced_v1`     |            true |
+| `medium`       | `offensive_v1`    |            true |
+| `long`         | `conservative_v1` |            true |
+| `long`         | `balanced_v1`     |            true |
+| `long`         | `offensive_v1`    |            true |
+
+Damit können die Kennzahlen der Robustheitsmatrix fachlich ausgewertet werden.
+
+---
+
+### Ergebnisblock `short`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      10.16 % | 24.55 % |      -7.96 % |   1.46 |    15.79 % |  20.00 % |
+| `balanced_v1`     |      10.19 % | 24.63 % |      -7.96 % |   1.46 |    15.79 % |  17.14 % |
+| `offensive_v1`    |      18.81 % | 47.84 % |      -7.92 % |   2.12 |    19.21 % |  20.00 % |
+
+Im kurzen Zeitraum liegt `offensive_v1` klar vorne. Das Profil erzielt die höchste Rendite und den höchsten Sharpe-Wert, ohne in diesem Zeitraum einen höheren Drawdown zu zeigen.
+
+`balanced_v1` und `conservative_v1` liegen nahezu gleichauf. Der Vorteil von `balanced_v1` liegt hier vor allem im geringeren Turnover.
+
+Zwischenfazit `short`:
+
+| Profil            | Bewertung                                                       |
+| ----------------- | --------------------------------------------------------------- |
+| `conservative_v1` | solide, aber kaum Vorteil gegenüber `balanced_v1`               |
+| `balanced_v1`     | ähnlich defensiv wie conservative, aber mit geringerem Turnover |
+| `offensive_v1`    | klar stärkstes Profil im kurzen Zeitraum                        |
+
+---
+
+### Ergebnisblock `medium`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      36.51 % | 24.13 % |     -22.12 % |   1.02 |    24.17 % |  18.48 % |
+| `balanced_v1`     |      44.51 % | 29.13 % |     -25.25 % |   1.14 |    25.36 % |  17.43 % |
+| `offensive_v1`    |      52.18 % | 33.85 % |     -29.63 % |   1.19 |    27.89 % |  19.53 % |
+
+Im mittleren Zeitraum zeigt sich die Profilabstufung sehr sauber.
+
+`conservative_v1` hat den geringsten Drawdown, verzichtet dafür aber deutlich auf Rendite.
+
+`offensive_v1` erzielt die höchste Rendite und den höchsten Sharpe-Wert, allerdings mit dem höchsten Drawdown, der höchsten Volatilität und dem höchsten Turnover.
+
+`balanced_v1` liegt zwischen beiden Profilen, erzielt aber den niedrigsten Turnover der drei Medium-Läufe. Das ist für die praktische Handelbarkeit positiv.
+
+Zwischenfazit `medium`:
+
+| Profil            | Bewertung                                              |
+| ----------------- | ------------------------------------------------------ |
+| `conservative_v1` | defensiv, aber mit deutlichem Renditeverzicht          |
+| `balanced_v1`     | sehr guter Kompromiss aus Rendite, Risiko und Turnover |
+| `offensive_v1`    | renditestark, aber sichtbar riskanter                  |
+
+---
+
+### Ergebnisblock `long`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      64.63 % | 13.48 % |     -22.12 % |   0.69 |    21.96 % |  16.78 % |
+| `balanced_v1`     |     115.48 % | 21.50 % |     -25.25 % |   0.93 |    24.05 % |  14.74 % |
+| `offensive_v1`    |     135.89 % | 24.32 % |     -29.63 % |   0.95 |    26.85 % |  19.64 % |
+
+Der lange Zeitraum ist besonders aussagekräftig.
+
+`conservative_v1` reduziert den Drawdown, verliert aber langfristig deutlich an Rendite.
+
+`offensive_v1` liefert die höchste Rendite, erkauft diese aber mit dem höchsten Drawdown, der höchsten Volatilität und dem höchsten Turnover.
+
+`balanced_v1` zeigt im langen Zeitraum ein sehr gutes Verhältnis aus Rendite, Risiko und Handelbarkeit. Besonders auffällig ist der niedrigste Turnover der drei Long-Läufe.
+
+Zwischenfazit `long`:
+
+| Profil            | Bewertung                                      |
+| ----------------- | ---------------------------------------------- |
+| `conservative_v1` | stabiler, aber langfristig zu renditeschwach   |
+| `balanced_v1`     | stärkster Kompromiss im Langfristvergleich     |
+| `offensive_v1`    | renditestark, aber mit deutlich höherem Risiko |
+
+---
+
+### Gesamtvergleich
+
+| Profil            | Stärke                               | Schwäche                                               | Gesamteindruck                              |
+| ----------------- | ------------------------------------ | ------------------------------------------------------ | ------------------------------------------- |
+| `conservative_v1` | geringerer Drawdown                  | deutlicher Renditeverzicht                             | defensiv, aber möglicherweise zu vorsichtig |
+| `balanced_v1`     | guter Kompromiss, niedriger Turnover | nicht immer höchste Rendite                            | aktueller Hauptkandidat bestätigt           |
+| `offensive_v1`    | höchste Rendite                      | höherer Drawdown, höhere Volatilität, höherer Turnover | interessant, aber riskanter                 |
+
+### Bewertung von `balanced_v1`
+
+`balanced_v1` erfüllt die Rolle als Hauptkandidat sehr gut.
+
+Das Profil ist nicht in jedem Einzelkriterium der Spitzenreiter, zeigt aber über die Matrix hinweg den besten Kompromiss:
+
+* deutlich höhere Rendite als `conservative_v1`,
+* deutlich geringerer Drawdown als `offensive_v1`,
+* gute Sharpe-Werte,
+* sehr guter Turnover, besonders im `medium`- und `long`-Zeitraum,
+* vollständige BT/RUN-Parität über alle getesteten Zeiträume.
+
+Damit bestätigt die Profil-Robustheitsmatrix `balanced_v1` vorläufig als sinnvollsten Hauptkandidaten.
+
+### Vorläufige Entscheidung
+
+Auf Basis der 3x3-Robustheitsmatrix bleibt:
+
+> `balanced_v1` der bevorzugte Hauptkandidat für die weitere Analyse.
+
+`offensive_v1` bleibt als renditeorientierte Alternative interessant, sollte aber wegen höherem Drawdown und höherer Volatilität nicht vorschnell als Hauptprofil übernommen werden.
+
+`conservative_v1` erfüllt seine defensive Rolle, wirkt aber im Verhältnis zum Renditeverzicht aktuell weniger attraktiv.
+
+### Nächster Schritt
+
+Nach der erfolgreichen Profil-Robustheitsmatrix sollte als nächstes nicht sofort optimiert werden.
+
+Sinnvoller nächster Schritt:
+
+> Marktphasen gezielt definieren und prüfen, ob `balanced_v1` auch in unterschiedlichen Marktumfeldern stabil bleibt.
+
+Damit folgt als nächster Abschnitt:
+
+`04.50 – Marktphasen-Test planen`
+
+
+## 04.50 – Marktphasen-Test planen
+
+Nach der erfolgreichen Profil-Robustheitsmatrix bleibt `balanced_v1` der aktuelle Hauptkandidat. Die Matrix über `short`, `medium` und `long` hat gezeigt, dass `balanced_v1` über mehrere Standardzeiträume einen guten Kompromiss aus Rendite, Risiko und Turnover liefert.
+
+Als nächster Schritt soll geprüft werden, ob dieses Verhalten auch in gezielten Marktphasen stabil bleibt.
+
+Ziel des Marktphasen-Tests ist es, die Profile nicht nur über allgemeine Zeiträume zu prüfen, sondern gezielt in unterschiedlichen Marktumfeldern:
+
+| Phase                       | Zweck                                            |
+| --------------------------- | ------------------------------------------------ |
+| Bärenmarkt / Zinsphase 2022 | Verhalten in längerem Stressumfeld prüfen        |
+| Erholung 2023               | Teilnahme an Erholungs- und Momentumphase prüfen |
+| jüngere Phase 2024/2025     | aktuelle Marktnähe prüfen                        |
+
+Die Marktphasen sollen nicht als neue technische Profile wie `short`, `medium` oder `long` modelliert werden. Diese Profile bleiben technische Lauf-/Validierungsprofile. Marktphasen sollen dagegen als fachliche Analysefenster behandelt werden.
+
+---
+
+## 04.55 – Technische Machbarkeit Marktphasen
+
+Die technische Prüfung hat ergeben, dass `short`, `medium` und `long` keine TOML-Profile sind, sondern in `scripts/run_bt_run_agent.py` als Python-Logik über `ProfileBehavior` definiert werden.
+
+Diese Profile steuern unter anderem:
+
+* `compare_mode`
+* `runner_extra_args`
+* `backtest_lookback_months`
+* `compare_point_count`
+* Beschreibung des Laufverhaltens
+
+Die zentrale Erkenntnis war:
+
+> `short`, `medium` und `long` sind technische Lauf-/Validierungsprofile und sollten nicht mit fachlichen Marktphasen vermischt werden.
+
+Der darunterliegende Backtest unterstützt bereits `--start` und `--end`. Der Runner unterstützt `--as-of` und `--period`. Der zentrale Wrapper `scripts.run_bt_run_agent` unterstützte zu diesem Zeitpunkt jedoch noch keine freien Zeitfenster.
+
+Bewertete Varianten:
+
+| Variante                            | Bewertung                                        |
+| ----------------------------------- | ------------------------------------------------ |
+| neue Zeitraumprofile                | technisch möglich, aber konzeptionell unsauber   |
+| freie CLI-Parameter                 | sinnvoll als technische Basis                    |
+| separates Marktphasen-Matrix-Skript | sauberste Zielarchitektur                        |
+| Segmentanalyse aus Long-Runs        | nützlich als Ergänzung, aber nicht als Hauptpfad |
+
+Entscheidung:
+
+> Zuerst soll der zentrale Einstieg `scripts.run_bt_run_agent` saubere Zeitfenster-Overrides erhalten. Danach kann ein separates Marktphasen-Matrix-Skript gebaut werden.
+
+---
+
+## 04.60 – Zeitfenster-Overrides im zentralen Agent-Einstieg
+
+Der zentrale Einstieg `scripts.run_bt_run_agent` wurde um freie Zeitfenster-Parameter erweitert:
+
+[CODE_START]
+--start YYYY-MM-DD
+--end YYYY-MM-DD
+--phase-name NAME
+[CODE_END]
+
+Semantik:
+
+| Parameter      | Bedeutung                                          |
+| -------------- | -------------------------------------------------- |
+| `--start`      | expliziter Backtest-Start                          |
+| `--end`        | explizites Backtest-Ende                           |
+| `--phase-name` | fachlicher Name des Analysefensters, nur Metadaten |
+
+Das Manifest wurde erweitert um:
+
+[CODE_START]
+phase_name
+phase_start
+phase_end
+effective_backtest_start
+effective_backtest_end
+[CODE_END]
+
+Tests:
+
+[CODE_START]
+42 passed
+[CODE_END]
+
+Ruff:
+
+[CODE_START]
+All checks passed
+[CODE_END]
+
+Es wurden keine Strategie-, Scoring-, Ranking-, Rebalance-, Finalisierungs- oder Compare-Logiken geändert.
+
+---
+
+## 04.66 – Diagnose erster Marktphasen-Kontrolllauf
+
+Ein erster echter Kontrolllauf wurde für die Marktphase `bear_market_2022` gestartet:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent 
+--profile medium 
+--strategy-profile balanced_v1 
+--start 2022-01-01 
+--end 2022-12-31 
+--phase-name bear_market_2022
+[CODE_END]
+
+Der Lauf zeigte:
+
+* `--start` und `--end` wurden korrekt an den Backtest durchgereicht.
+* Das Manifest enthielt die neuen Phasenfelder korrekt.
+* Der Backtest erzeugte jedoch keine Equity-Curve.
+* Es entstanden keine `BT_*.json` im run-spezifischen Decisions-Ordner.
+* Der Agent fiel anschließend auf ein Config-`as_of` aus 2025 zurück.
+
+Die Ursache war:
+
+> `--start` wirkte im Backtest als harter Datenstart. Für 2022 fehlte dadurch die notwendige Historie für `min_history_days`, Scoring, Volatilität und Regime-/SMA-Logik.
+
+Damit wurde klar, dass Marktphasen technisch einen getrennten Warmup-Zeitraum benötigen.
+
+---
+
+## 04.67 – Fail-fast bei expliziten Zeitfenstern ohne BT-Bundles
+
+Zur Absicherung wurde ein Fail-fast-Guard ergänzt.
+
+Wenn ein explizites Zeitfenster aktiv ist und nach erfolgreichem Backtest keine gültigen `BT_*.json` im run-spezifischen Decisions-Ordner existieren, gilt jetzt:
+
+* Runner wird nicht gestartet.
+* Compare wird nicht gestartet.
+* Kein Fallback auf Config-`as_of`.
+* Kein Seeding aus alten/globalen Positionsdateien.
+* Der Run wird als `success=false` markiert.
+* Das Manifest enthält eine klare Warning.
+
+Beispielmeldung:
+
+[CODE_START]
+No BT decision bundles produced for explicit time window 2022-01-01..2022-12-31 (bear_market_2022); runner skipped to avoid stale/config as_of fallback.
+[CODE_END]
+
+Tests:
+
+[CODE_START]
+45 passed
+[CODE_END]
+
+Ruff:
+
+[CODE_START]
+All checks passed
+[CODE_END]
+
+Es wurde keine Strategie-, Backtest-, Runner- oder Compare-Logik geändert. Der Fix betrifft nur die Agent-Orchestrierung.
+
+---
+
+## 04.68 – Warmup-Start / Phase-Start Konzept
+
+Die Analyse ergab, dass Marktphasen drei Datumsbegriffe benötigen:
+
+| Begriff        | Bedeutung                                                |
+| -------------- | -------------------------------------------------------- |
+| `warmup_start` | Datenstart für Historie, Indikatoren, Scoring und Regime |
+| `phase_start`  | fachlicher Start der Marktphase                          |
+| `phase_end`    | fachliches Ende der Marktphase                           |
+
+Beispiel für 2022:
+
+[CODE_START]
+warmup_start = 2020-07-01
+phase_start  = 2022-01-01
+phase_end    = 2022-12-31
+[CODE_END]
+
+Der Backtest soll Daten ab `warmup_start` laden. Runner und Compare sollen aber nur auf BT-as_ofs innerhalb `phase_start..phase_end` laufen.
+
+Entscheidung:
+
+> Der Backtest-Code muss zunächst nicht geändert werden. Die Trennung kann im Wrapper/Agent erfolgen.
+
+---
+
+## 04.69 – Warmup-Start und Phasen-Compare-Punkte
+
+`scripts.run_bt_run_agent` wurde um den neuen optionalen Parameter ergänzt:
+
+[CODE_START]
+--warmup-start YYYY-MM-DD
+[CODE_END]
+
+Neue Semantik:
+
+| Parameter        | Bedeutung                                |
+| ---------------- | ---------------------------------------- |
+| `--warmup-start` | effektiver Backtest-Datenstart           |
+| `--start`        | fachlicher `phase_start`                 |
+| `--end`          | fachlicher `phase_end` und Backtest-Ende |
+| `--phase-name`   | fachliche Metadaten                      |
+
+Wenn `--warmup-start` gesetzt ist, wird dieser Wert an den Backtest als `--start` durchgereicht. Das bisherige `--start` bleibt als `phase_start` im Manifest erhalten.
+
+Der Agent filtert die BT-as_ofs jetzt auf:
+
+[CODE_START]
+phase_start <= as_of <= phase_end
+[CODE_END]
+
+Erst danach wird `compare_point_count` angewendet. Der Runner wird nur für diese gefilterten Phasenpunkte gestartet. BT-Bundles aus der Warmup-Zeit erhalten kein RUN-Pendant und werden nicht verglichen.
+
+Tests:
+
+[CODE_START]
+48 passed
+[CODE_END]
+
+Ruff:
+
+[CODE_START]
+All checks passed
+[CODE_END]
+
+Ein echter Kontrolllauf für `bear_market_2022` war erfolgreich:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent 
+--profile medium 
+--strategy-profile balanced_v1 
+--warmup-start 2020-07-01 
+--start 2022-01-01 
+--end 2022-12-31 
+--phase-name bear_market_2022
+[CODE_END]
+
+Ergebnis:
+
+[CODE_START]
+success = true
+Runner compare points = 2022-10-31, 2022-11-30, 2022-12-30
+compare.success = true
+compare.matched = true
+compare.message = 3 matched, 0 mismatched
+[CODE_END]
+
+Damit ist die technische Grundlage für Marktphasenläufe hergestellt.
+
+---
+
+## 04.70 – Marktphasen-Matrix vorbereiten
+
+Nach erfolgreichem Einzelkontrolllauf kann nun eine Marktphasen-Matrix aufgebaut werden.
+
+Ziel ist ein neues Orchestrator-Skript:
+
+[CODE_START]
+scripts/run_market_phase_matrix.py
+[CODE_END]
+
+Das Skript soll mehrere Marktphasen und Strategieprofile ausführen, indem es ausschließlich den bestehenden zentralen Einstieg nutzt:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent 
+--profile medium 
+--strategy-profile <strategy_profile> 
+--warmup-start <warmup_start> 
+--start <phase_start> 
+--end <phase_end> 
+--phase-name <phase_name>
+[CODE_END]
+
+Vorgesehene Default-Phasen:
+
+| Phase              | Warmup Start | Phase Start | Phase End  | Typ                    |
+| ------------------ | ------------ | ----------- | ---------- | ---------------------- |
+| `bear_market_2022` | 2020-07-01   | 2022-01-01  | 2022-12-31 | Bärenmarkt / Zinsphase |
+| `recovery_2023`    | 2021-07-01   | 2023-01-01  | 2023-12-31 | Erholung / Momentum    |
+| `recent_2024_2025` | 2022-07-01   | 2024-01-01  | 2025-10-08 | jüngere Marktphase     |
+
+Vorgesehene Strategieprofile:
+
+* `conservative_v1`
+* `balanced_v1`
+* `offensive_v1`
+
+Für den ersten Marktphasenvergleich wird als technisches Laufprofil weiterhin `medium` verwendet.
+
+Wichtiger Hinweis:
+
+> Die aktuell aus den Backtest-Artefakten extrahierten Performance-Kennzahlen können bei Warmup-Läufen den Zeitraum ab Warmup enthalten. Phase-only Performance-Metriken sollen später separat berechnet werden, indem Equity- und Benchmark-Zeitreihen auf `phase_start..phase_end` segmentiert werden.
+
+04.70 baut daher zunächst nur:
+
+* Orchestrierung,
+* Manifest-Sammlung,
+* Compare-Status,
+* Runner-Compare-Punkte,
+* bestehende Snapshot-Kennzahlen,
+* Markdown-/JSON-Report.
+
+Die eigentliche Phase-only Performance-Auswertung folgt später.
+
+
+## 04.71 – Ergebnis der Marktphasen-Matrix
+
+Nach der Umsetzung von `scripts/run_market_phase_matrix.py` wurde die vollständige Marktphasen-Matrix ausgeführt.
+
+Der Matrixlauf umfasst:
+
+* 3 Marktphasen
+* 3 Strategieprofile
+* insgesamt 9 Läufe
+
+Verwendetes technisches Laufprofil:
+
+[CODE_START]
+--profile medium
+[CODE_END]
+
+Verwendete Strategieprofile:
+
+* `conservative_v1`
+* `balanced_v1`
+* `offensive_v1`
+
+Verwendete Marktphasen:
+
+| Phase              | Typ                    | Warmup Start | Phase Start |  Phase End |
+| ------------------ | ---------------------- | -----------: | ----------: | ---------: |
+| `bear_market_2022` | Bärenmarkt / Zinsphase |   2020-07-01 |  2022-01-01 | 2022-12-31 |
+| `recovery_2023`    | Erholung / Momentum    |   2021-07-01 |  2023-01-01 | 2023-12-31 |
+| `recent_2024_2025` | jüngere Marktphase     |   2022-07-01 |  2024-01-01 | 2025-10-08 |
+
+### Technischer Status
+
+Die Marktphasen-Matrix lief technisch vollständig erfolgreich.
+
+| Kennzahl              | Ergebnis |
+| --------------------- | -------: |
+| Läufe gesamt          |        9 |
+| Erfolgreiche Läufe    |        9 |
+| Fehlgeschlagene Läufe |        0 |
+| Compare-Mismatches    |        0 |
+
+Alle Läufe wurden über den zentralen Einstieg ausgeführt:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent 
+--profile medium 
+--strategy-profile <strategy_profile> 
+--warmup-start <warmup_start> 
+--start <phase_start> 
+--end <phase_end> 
+--phase-name <phase_name>
+[CODE_END]
+
+Damit wurde keine neue Backtest-, Runner- oder Compare-Logik eingeführt. Das Matrix-Skript übernimmt nur die Orchestrierung und sammelt anschließend Manifest-, Snapshot- und Reportdaten.
+
+### Ausgeführte Matrix
+
+| Phase              | Strategieprofil   | Success | Compare matched | Compare message         |
+| ------------------ | ----------------- | ------: | --------------: | ----------------------- |
+| `bear_market_2022` | `conservative_v1` |    true |            true | 3 matched, 0 mismatched |
+| `bear_market_2022` | `balanced_v1`     |    true |            true | 3 matched, 0 mismatched |
+| `bear_market_2022` | `offensive_v1`    |    true |            true | 3 matched, 0 mismatched |
+| `recovery_2023`    | `conservative_v1` |    true |            true | 3 matched, 0 mismatched |
+| `recovery_2023`    | `balanced_v1`     |    true |            true | 3 matched, 0 mismatched |
+| `recovery_2023`    | `offensive_v1`    |    true |            true | 3 matched, 0 mismatched |
+| `recent_2024_2025` | `conservative_v1` |    true |            true | 3 matched, 0 mismatched |
+| `recent_2024_2025` | `balanced_v1`     |    true |            true | 3 matched, 0 mismatched |
+| `recent_2024_2025` | `offensive_v1`    |    true |            true | 3 matched, 0 mismatched |
+
+### Runner-Compare-Punkte
+
+Die Runner-Compare-Punkte lagen jeweils korrekt innerhalb der definierten Marktphase.
+
+| Phase              | Runner Compare Points              |
+| ------------------ | ---------------------------------- |
+| `bear_market_2022` | 2022-10-31, 2022-11-30, 2022-12-30 |
+| `recovery_2023`    | 2023-10-31, 2023-11-30, 2023-12-29 |
+| `recent_2024_2025` | 2025-08-29, 2025-09-30, 2025-10-07 |
+
+Damit ist der frühere Fehler behoben, bei dem ein Phasenlauf ohne gültige BT-Bundles auf ein Config-`as_of` aus 2025 zurückfallen konnte.
+
+Die Marktphasen-Orchestrierung funktioniert jetzt sauber:
+
+* Warmup-Datenstart wird verwendet.
+* BT-as_ofs werden auf die Phase gefiltert.
+* Runner startet nur für Phasenpunkte.
+* BT/RUN-Compare bleibt innerhalb der Phase matched.
+* Keine alten/globalen Positionsdaten werden als Fallback verwendet.
+
+### Hinweis zu den Kennzahlen
+
+Die aktuell ausgewiesenen Performance-Kennzahlen stammen noch aus bestehenden Backtest-Summary-/Artefaktdaten.
+
+Bei Warmup-Läufen können diese Kennzahlen den Zeitraum ab Warmup bzw. ab erstem gültigem Rebalancepunkt enthalten. Sie sind daher noch nicht zwingend reine Marktphasen-Kennzahlen.
+
+Für die spätere fachliche Bewertung sollen Phase-only-Metriken ergänzt werden, indem Equity- und Benchmark-Zeitreihen auf `phase_start..phase_end` segmentiert werden.
+
+Bis dahin gelten die aktuellen Kennzahlen als technisch hilfreiche Orientierung, aber nicht als finale Marktphasen-Performance.
+
+---
+
+### Vorläufige Lesart der bestehenden Kennzahlen
+
+Trotz des genannten Vorbehalts zeigen die aktuellen Kennzahlen bereits eine interessante Tendenz.
+
+#### Phase `bear_market_2022`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      -9.10 % | -6.51 % |     -19.61 % |  -0.29 |    17.81 % |  13.33 % |
+| `balanced_v1`     |       3.82 % |  2.68 % |     -19.37 % |   0.23 |    22.33 % |  10.00 % |
+| `offensive_v1`    |       5.44 % |  3.81 % |     -19.20 % |   0.27 |    26.12 % |  20.00 % |
+
+In der Stressphase 2022 fällt auf, dass `balanced_v1` deutlich besser abschneidet als `conservative_v1` und gleichzeitig den niedrigsten Turnover zeigt.
+
+`offensive_v1` liefert die höchste Rendite, hat aber auch den höchsten Turnover und die höchste Volatilität.
+
+Vorläufige Bewertung:
+
+| Profil            | Einschätzung                                                |
+| ----------------- | ----------------------------------------------------------- |
+| `conservative_v1` | defensiv, aber in dieser Auswertung nicht überzeugend genug |
+| `balanced_v1`     | guter Stressphasen-Kompromiss mit niedrigem Turnover        |
+| `offensive_v1`    | renditestärker, aber deutlich aktiver und volatiler         |
+
+#### Phase `recovery_2023`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      13.27 % |  9.18 % |     -13.46 % |   0.64 |    15.80 % |  16.67 % |
+| `balanced_v1`     |      23.64 % | 16.14 % |     -13.46 % |   0.99 |    16.55 % |  13.33 % |
+| `offensive_v1`    |      37.78 % | 25.36 % |     -13.46 % |   1.12 |    22.35 % |  20.00 % |
+
+In der Erholungsphase 2023 ist `offensive_v1` erwartungsgemäß am stärksten. `balanced_v1` zeigt aber erneut einen guten Mittelweg: deutlich höhere Rendite als `conservative_v1`, gleicher Max Drawdown und niedrigerer Turnover.
+
+Vorläufige Bewertung:
+
+| Profil            | Einschätzung                               |
+| ----------------- | ------------------------------------------ |
+| `conservative_v1` | stabil, aber renditeschwächer              |
+| `balanced_v1`     | guter Kompromiss aus Rendite und Aktivität |
+| `offensive_v1`    | profitiert am stärksten von der Erholung   |
+
+#### Phase `recent_2024_2025`
+
+| Profil            | Total Return |    CAGR | Max Drawdown | Sharpe | Volatility | Turnover |
+| ----------------- | -----------: | ------: | -----------: | -----: | ---------: | -------: |
+| `conservative_v1` |      50.72 % | 20.63 % |     -22.12 % |   0.87 |    25.36 % |  18.65 % |
+| `balanced_v1`     |      71.31 % | 27.90 % |     -25.25 % |   1.07 |    26.31 % |  17.22 % |
+| `offensive_v1`    |      79.05 % | 30.51 % |     -29.63 % |   1.10 |    27.89 % |  19.37 % |
+
+In der jüngeren Phase 2024/2025 bleibt `balanced_v1` nah an `offensive_v1`, zeigt aber niedrigeren Drawdown und geringeren Turnover.
+
+Vorläufige Bewertung:
+
+| Profil            | Einschätzung                                        |
+| ----------------- | --------------------------------------------------- |
+| `conservative_v1` | deutlich defensiver, aber mit Renditeverzicht       |
+| `balanced_v1`     | sehr attraktiver Kompromiss                         |
+| `offensive_v1`    | höchste Rendite, aber höherer Drawdown und Turnover |
+
+---
+
+### Vorläufiges Gesamtfazit
+
+Die Marktphasen-Matrix bestätigt technisch, dass die aktuelle Agent-/Runner-/Compare-Struktur auch für Marktphasenläufe funktioniert.
+
+Fachlich bleibt `balanced_v1` weiterhin der bevorzugte Hauptkandidat.
+
+| Profil            | Vorläufiger Gesamteindruck                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `conservative_v1` | erfüllt die defensive Rolle, wirkt aber in den bisherigen Ergebnissen teilweise zu renditeschwach |
+| `balanced_v1`     | stabiler Kompromiss über Stress-, Erholungs- und jüngere Marktphase                               |
+| `offensive_v1`    | renditestark, aber mit höherem Risiko, höherer Volatilität und meist höherem Turnover             |
+
+Wichtig:
+
+> Die finale fachliche Bewertung der Marktphasen sollte erst nach Phase-only-Metriken erfolgen.
+
+### Nächster Schritt
+
+Als nächster Schritt sollen Phase-only-Metriken geplant werden.
+
+Ziel:
+
+> Performance, Drawdown, Volatilität, Sharpe, Benchmark-Vergleich und ggf. Turnover sollen nur innerhalb der jeweiligen Marktphase berechnet werden.
+
+Dazu sollen Equity- und Benchmark-Zeitreihen auf `phase_start..phase_end` geschnitten und innerhalb des Segments neu normalisiert werden.
+
+Möglicher nächster Abschnitt:
+
+`04.72 – Phase-only-Metriken planen`
+
+## 04.74 – Phase-only-Auswertung der Marktphasen-Matrix
+
+Nach der Ergänzung der Phase-only-Metriken wurde die Marktphasen-Matrix erneut ausgeführt.
+
+Die Matrix umfasst weiterhin:
+
+* 3 Marktphasen
+* 3 Strategieprofile
+* insgesamt 9 Läufe
+
+Alle Läufe waren technisch erfolgreich.
+
+| Kennzahl              | Ergebnis |
+| --------------------- | -------: |
+| Läufe gesamt          |        9 |
+| Erfolgreiche Läufe    |        9 |
+| Fehlgeschlagene Läufe |        0 |
+| Compare-Mismatches    |        0 |
+
+Alle Kombinationen lieferten:
+
+[CODE_START]
+3 matched, 0 mismatched
+[CODE_END]
+
+Damit ist die BT/RUN-Parität auch für die Marktphasen-Matrix mit Phase-only-Auswertung hergestellt.
+
+---
+
+### Bedeutung der Phase-only-Metriken
+
+Die bisherigen Snapshot-/Full-Artifact-Metriken konnten Warmup-Anteile enthalten.
+
+Die neuen Phase-only-Metriken werden dagegen aus Equity- und Benchmark-Zeitreihen berechnet, die auf das jeweilige Phasenfenster geschnitten werden:
+
+[CODE_START]
+phase_start <= date <= phase_end
+[CODE_END]
+
+Danach wird das Segment intern auf den Segmentstart normalisiert.
+
+Dadurch wird die jeweilige Marktphase isolierter bewertet.
+
+Zusätzlich wurden Outperformance-Felder ergänzt:
+
+| Feld                             | Bedeutung                                                             |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `outperformed_benchmark`         | Portfolio Total Return > Benchmark Total Return                       |
+| `cagr_outperformed_benchmark`    | Portfolio CAGR > Benchmark CAGR                                       |
+| `drawdown_better_than_benchmark` | Portfolio Max Drawdown ist weniger negativ als Benchmark Max Drawdown |
+
+Turnover wird aus `trades.csv` innerhalb des Phasenfensters berechnet. Der erste Trade innerhalb der Phase kann aber noch aus Vorphasen-Holdings resultieren.
+
+---
+
+## Phase `bear_market_2022`
+
+| Profil            | Portfolio Return | Benchmark Return | Relative Return | Outperformed | Portfolio Max DD | Benchmark Max DD | DD Better |  Sharpe | Turnover |
+| ----------------- | ---------------: | ---------------: | --------------: | -----------: | ---------------: | ---------------: | --------: | ------: | -------: |
+| `conservative_v1` |         -14.65 % |         -13.42 % |         -1.23 % |        false |         -15.50 % |         -17.10 % |      true | -1.1431 |  10.00 % |
+| `balanced_v1`     |          -2.52 % |         -13.42 % |         10.90 % |         true |         -15.25 % |         -17.10 % |      true | -0.0188 |   5.00 % |
+| `offensive_v1`    |          -1.21 % |         -13.42 % |         12.22 % |         true |         -19.16 % |         -17.10 % |     false |  0.0862 |  20.00 % |
+
+### Bewertung `bear_market_2022`
+
+In der Bärenmarktphase 2022 zeigt `balanced_v1` ein sehr gutes Verhältnis aus Renditeschutz, Benchmark-Outperformance und Drawdown-Kontrolle.
+
+`conservative_v1` hatte zwar einen besseren Drawdown als die Benchmark, verlor aber mehr als die Benchmark und verfehlte damit das Ziel einer defensiven Outperformance.
+
+`offensive_v1` erzielte die beste Rendite, hatte aber einen schlechteren Drawdown als die Benchmark und den höchsten Turnover.
+
+Zwischenfazit:
+
+| Profil            | Bewertung                                           |
+| ----------------- | --------------------------------------------------- |
+| `conservative_v1` | defensiver Drawdown, aber schwache relative Rendite |
+| `balanced_v1`     | stärkster Kompromiss in der Stressphase             |
+| `offensive_v1`    | renditestärker, aber risikoreicher                  |
+
+Für 2022 ist `balanced_v1` aus Sicht von Risiko/Rendite besonders überzeugend.
+
+---
+
+## Phase `recovery_2023`
+
+| Profil            | Portfolio Return | Benchmark Return | Relative Return | Outperformed | Portfolio Max DD | Benchmark Max DD | DD Better | Sharpe | Turnover |
+| ----------------- | ---------------: | ---------------: | --------------: | -----------: | ---------------: | ---------------: | --------: | -----: | -------: |
+| `conservative_v1` |          17.49 % |          21.23 % |         -3.74 % |        false |         -13.46 % |          -7.08 % |     false | 0.9662 |  20.00 % |
+| `balanced_v1`     |          29.78 % |          21.23 % |          8.55 % |         true |         -13.46 % |          -7.08 % |     false | 1.4481 |  18.33 % |
+| `offensive_v1`    |          33.23 % |          21.23 % |         12.00 % |         true |         -13.46 % |          -7.08 % |     false | 1.4267 |  20.00 % |
+
+### Bewertung `recovery_2023`
+
+In der Erholungsphase 2023 zeigt `offensive_v1` die höchste absolute und relative Rendite.
+
+`balanced_v1` schlägt die Benchmark ebenfalls deutlich und erreicht sogar den höchsten Sharpe-Wert der drei Profile. Der Max Drawdown ist allerdings bei allen Profilen schlechter als bei der Benchmark.
+
+`conservative_v1` bleibt in dieser Phase hinter der Benchmark zurück und erfüllt damit die Rolle als defensiver Schutz nur eingeschränkt.
+
+Zwischenfazit:
+
+| Profil            | Bewertung                                                                         |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `conservative_v1` | zu renditeschwach in der Erholung                                                 |
+| `balanced_v1`     | starke Outperformance mit bestem Sharpe                                           |
+| `offensive_v1`    | höchste Rendite, aber nicht klar besser als balanced im Risiko/Rendite-Verhältnis |
+
+Für 2023 bleibt `balanced_v1` sehr attraktiv, auch wenn `offensive_v1` bei der Rendite vorne liegt.
+
+---
+
+## Phase `recent_2024_2025`
+
+| Profil            | Portfolio Return | Benchmark Return | Relative Return | Outperformed | Portfolio Max DD | Benchmark Max DD | DD Better | Sharpe | Turnover |
+| ----------------- | ---------------: | ---------------: | --------------: | -----------: | ---------------: | ---------------: | --------: | -----: | -------: |
+| `conservative_v1` |          68.03 % |          35.47 % |         32.57 % |         true |         -22.12 % |         -23.32 % |      true | 1.2649 |  18.28 % |
+| `balanced_v1`     |          77.88 % |          35.47 % |         42.41 % |         true |         -25.25 % |         -23.32 % |     false | 1.3516 |  17.37 % |
+| `offensive_v1`    |          85.98 % |          35.47 % |         50.51 % |         true |         -29.63 % |         -23.32 % |     false | 1.3653 |  19.19 % |
+
+### Bewertung `recent_2024_2025`
+
+In der jüngeren Marktphase schlagen alle drei Profile die Benchmark deutlich.
+
+`offensive_v1` liefert die höchste Rendite und den höchsten Sharpe-Wert, hat aber auch den schlechtesten Max Drawdown.
+
+`balanced_v1` liegt renditeseitig klar vor `conservative_v1` und relativ nah an `offensive_v1`. Gleichzeitig hat es weniger Drawdown und niedrigeren Turnover als `offensive_v1`.
+
+`conservative_v1` ist defensiver und hat als einziges Profil einen besseren Drawdown als die Benchmark, verzichtet aber deutlich auf Rendite.
+
+Zwischenfazit:
+
+| Profil            | Bewertung                                               |
+| ----------------- | ------------------------------------------------------- |
+| `conservative_v1` | defensiv brauchbar, aber mit deutlichem Renditeverzicht |
+| `balanced_v1`     | starker Kompromiss mit sehr guter Outperformance        |
+| `offensive_v1`    | höchste Rendite, aber deutlich höherer Drawdown         |
+
+Für 2024/2025 bleibt `balanced_v1` der robustere Hauptkandidat, während `offensive_v1` als risikoreichere Renditevariante interessant bleibt.
+
+---
+
+## Gesamtbewertung über alle Marktphasen
+
+### Benchmark-Outperformance
+
+| Profil            | 2022 | 2023 | 2024/2025 |
+| ----------------- | ---: | ---: | --------: |
+| `conservative_v1` | nein | nein |        ja |
+| `balanced_v1`     |   ja |   ja |        ja |
+| `offensive_v1`    |   ja |   ja |        ja |
+
+`balanced_v1` schlägt die Benchmark in allen drei getesteten Marktphasen.
+
+`offensive_v1` schlägt die Benchmark ebenfalls in allen drei Phasen, erkauft diese Stärke aber mit höheren Drawdowns.
+
+`conservative_v1` schlägt die Benchmark nur in der jüngeren Phase 2024/2025.
+
+### Drawdown im Vergleich zur Benchmark
+
+| Profil            |       2022 |       2023 |  2024/2025 |
+| ----------------- | ---------: | ---------: | ---------: |
+| `conservative_v1` |     besser | schlechter |     besser |
+| `balanced_v1`     |     besser | schlechter | schlechter |
+| `offensive_v1`    | schlechter | schlechter | schlechter |
+
+Beim Drawdown zeigt sich ein differenziertes Bild.
+
+`balanced_v1` schützt in der Stressphase 2022 besser als die Benchmark, hat aber in den stärkeren Marktphasen 2023 und 2024/2025 höhere Drawdowns als die Benchmark.
+
+`offensive_v1` hat in keiner der drei Phasen einen besseren Drawdown als die Benchmark.
+
+`conservative_v1` zeigt in zwei von drei Phasen einen besseren Drawdown, liefert aber weniger zuverlässige Outperformance.
+
+---
+
+## Vorläufiges Fazit nach Phase-only-Metriken
+
+Die Phase-only-Auswertung bestätigt `balanced_v1` als aktuellen Hauptkandidaten.
+
+Wesentliche Gründe:
+
+* Benchmark-Outperformance in allen drei getesteten Marktphasen.
+* Sehr gute relative Rendite in 2022, 2023 und 2024/2025.
+* Bessere Drawdown-Kontrolle als `offensive_v1`.
+* In 2022 besserer Drawdown als die Benchmark.
+* Geringerer Turnover als `offensive_v1` in allen drei Phasen.
+* Deutlich bessere Rendite als `conservative_v1`.
+
+`offensive_v1` bleibt als renditeorientierte Alternative interessant, zeigt aber klar höhere Drawdown-Risiken.
+
+`conservative_v1` erfüllt teilweise die defensive Rolle, wirkt aber im Verhältnis zum Renditeverzicht aktuell weniger attraktiv.
+
+### Entscheidung
+
+`balanced_v1` bleibt der bevorzugte Hauptkandidat für die weitere Analyse.
+
+---
+
+## Offene Punkte
+
+Trotz des positiven Ergebnisses sollten zwei Punkte weiter geprüft werden:
+
+1. `balanced_v1` hat in 2023 und 2024/2025 einen schlechteren Max Drawdown als die Benchmark.
+2. `offensive_v1` liefert häufig die höchste Rendite, aber mit klar höherem Drawdown.
+
+Daraus ergibt sich als nächster sinnvoller Schritt:
+
+> Keine sofortige Optimierung, sondern zunächst eine gezielte Risiko-/Drawdown-Analyse von `balanced_v1`.
+
+Möglicher nächster Abschnitt:
+
+`04.75 – Drawdown- und Risikoanalyse von balanced_v1 planen`
+
+## 04.77 – Drawdown-Analyse von `balanced_v1`
+
+Nach der Phase-only-Auswertung der Marktphasen-Matrix wurde für den aktuellen Hauptkandidaten `balanced_v1` eine separate Drawdown-Analyse umgesetzt.
+
+Ziel war nicht, die Strategie zu optimieren, sondern die Drawdown-Seite besser zu verstehen.
+
+### Umsetzung
+
+Neu angelegt bzw. geändert:
+
+* `scripts/drawdown_analysis.py`
+* `scripts/run_drawdown_analysis.py`
+* `tests/unit/scripts/test_drawdown_analysis.py`
+* `tests/unit/scripts/test_run_drawdown_analysis.py`
+
+Erzeugte Reports:
+
+* `reports/strategy_analysis/drawdown_analysis/balanced_v1_drawdown_analysis.md`
+* `reports/strategy_analysis/drawdown_analysis/balanced_v1_drawdown_analysis.json`
+
+Die Analyse arbeitet ausschließlich lesend auf bestehenden Artefakten.
+
+Es wurden keine Strategie-, Profil-, Scoring-, Ranking-, Rebalance-, Finalisierungs-, Backtest-, Runner-, Compare- oder Walk-forward-Logiken geändert.
+
+### Methodik
+
+Pro Marktphase wird die Portfolio-Equity auf das jeweilige Phasenfenster geschnitten:
+
+[CODE_START]
+phase_start <= date <= phase_end
+[CODE_END]
+
+Danach wird die Drawdown-Serie berechnet:
+
+[CODE_START]
+drawdown = equity / cummax(equity) - 1
+[CODE_END]
+
+Die Drawdowns werden in getrennte Episoden zerlegt. Dadurch werden nicht mehrere Tage derselben Episode mehrfach als eigene Top-Drawdowns gezählt.
+
+Für jede Drawdown-Episode werden unter anderem ermittelt:
+
+* Startdatum
+* Tiefpunkt
+* Recovery-Datum, falls vorhanden
+* maximale Drawdown-Tiefe
+* Dauer in Kalendertagen
+* Dauer in Beobachtungen
+* Benchmark-Drawdown im gleichen Fenster
+* Benchmark-Drawdown am Portfolio-Tiefpunkt
+* Drawdown-Differenz Portfolio vs. Benchmark
+
+### Benchmark-Vergleich
+
+Für den Benchmark wird explizit die erste Spalte mit Prefix `BM1_` verwendet, z. B.:
+
+[CODE_START]
+BM1_SXR8.DE
+[CODE_END]
+
+Die Spalte `equity` in der Benchmark-Datei wird nicht als Benchmark verwendet.
+
+Für jedes Portfolio-Drawdown-Fenster werden berechnet:
+
+* Benchmark-Drawdown am Portfolio-Tiefpunkt
+* Benchmark-MaxDD im gleichen Fenster
+* Differenz Portfolio-DD vs. Benchmark-DD
+
+Da Drawdowns negativ sind, bedeutet:
+
+| Wert                     | Bedeutung                       |
+| ------------------------ | ------------------------------- |
+| negativer DD-Unterschied | Portfolio war tiefer/schlechter |
+| positiver DD-Unterschied | Portfolio war flacher/besser    |
+
+### Positions-, Sektor- und Trade-Auswertung
+
+Die Positions- und Sektorbetrachtung basiert auf Rebalance-Snapshots.
+
+Wichtig:
+
+> Die Analyse zeigt, welche Ticker und Sektoren während eines Drawdown-Fensters im Portfolio vertreten waren. Sie berechnet keine exakten Ticker-Drawdown-Beiträge.
+
+Der Grund:
+
+`positions.csv` enthält keine tägliche Positionshistorie und keine tägliche Ticker-Attribution.
+
+Daher werden keine Aussagen dieser Art getroffen:
+
+[CODE_START]
+Ticker X verursachte Y Prozentpunkte Drawdown.
+[CODE_END]
+
+Zulässig sind dagegen Aussagen wie:
+
+[CODE_START]
+Ticker/Sektor X war während des Drawdown-Fensters häufig oder stark im Portfolio vertreten.
+[CODE_END]
+
+Trades werden innerhalb des Drawdown-Fensters aggregiert:
+
+* Anzahl Trades
+* Turnover-Summe
+* durchschnittlicher Turnover
+* Trade-Kosten
+* rohe `enter`-/`exit`-Werte
+
+### Verifikation
+
+Die Umsetzung wurde erfolgreich geprüft.
+
+| Prüfung             |          Ergebnis |
+| ------------------- | ----------------: |
+| Unit-Tests          |         28 passed |
+| Ruff                | All checks passed |
+| Echter Analyse-Lauf |       erfolgreich |
+| Reports erzeugt     |                ja |
+
+---
+
+## Wichtigste Befunde für `balanced_v1`
+
+### Übersicht der schlimmsten Drawdowns je Phase
+
+| Phase              | Worst DD | Benchmark-MaxDD im selben Fenster | Differenz | Recovery        |
+| ------------------ | -------: | --------------------------------: | --------: | --------------- |
+| `bear_market_2022` | -15.25 % |                          -11.44 % |  -3.80 pp | 2022-04-08      |
+| `recovery_2023`    | -13.46 % |                           -7.08 % |  -6.38 pp | 2023-12-19      |
+| `recent_2024_2025` | -25.25 % |                          -23.32 % |  -1.93 pp | nicht recovered |
+
+### Einordnung `bear_market_2022`
+
+Im Bärenmarkt 2022 hatte `balanced_v1` im schlimmsten Drawdown-Fenster einen Drawdown von ca. `-15.25 %`.
+
+Der Benchmark-MaxDD im gleichen Fenster lag bei ca. `-11.44 %`.
+
+Damit war der Portfolio-Drawdown in diesem Fenster um ca. `-3.80 Prozentpunkte` schlechter als der Benchmark.
+
+Wichtig ist aber:
+
+* Der Drawdown wurde innerhalb der Phase wieder aufgeholt.
+* Recovery-Datum: `2022-04-08`
+* In der gesamten Phase hatte `balanced_v1` dennoch eine deutliche Rendite-Outperformance gegenüber der Benchmark.
+
+Bewertung:
+
+`balanced_v1` zeigte 2022 eine gute Gesamtrisikostruktur, aber einzelne Drawdown-Episoden konnten tiefer ausfallen als beim Benchmark.
+
+### Einordnung `recovery_2023`
+
+In der Erholungsphase 2023 lag der Worst Drawdown von `balanced_v1` bei ca. `-13.46 %`.
+
+Der Benchmark-MaxDD im gleichen Fenster lag nur bei ca. `-7.08 %`.
+
+Damit war der Portfolio-Drawdown um ca. `-6.38 Prozentpunkte` schlechter als der Benchmark.
+
+Recovery-Datum:
+
+[CODE_START]
+2023-12-19
+[CODE_END]
+
+Bewertung:
+
+Diese Phase ist fachlich besonders relevant.
+
+`balanced_v1` lieferte zwar eine starke Rendite-Outperformance, hatte aber in der Zwischenbewegung einen deutlich schlechteren Drawdown als der Benchmark.
+
+Das spricht nicht gegen das Profil, zeigt aber:
+
+> Die Strategie kann in Erholungsphasen zwischenzeitlich stärker zurückfallen als der Index.
+
+### Einordnung `recent_2024_2025`
+
+In der jüngeren Marktphase 2024/2025 lag der Worst Drawdown bei ca. `-25.25 %`.
+
+Der Benchmark-MaxDD im gleichen Fenster lag bei ca. `-23.32 %`.
+
+Damit war der Portfolio-Drawdown um ca. `-1.93 Prozentpunkte` schlechter als der Benchmark.
+
+Wichtig:
+
+* Der Drawdown war der tiefste der drei untersuchten Phasen.
+* Im betrachteten Phasenfenster wurde keine vollständige Recovery erreicht.
+
+Bewertung:
+
+`recent_2024_2025` ist aus Risikosicht die kritischste Phase.
+
+Der Abstand zur Benchmark ist zwar geringer als in 2023, aber der absolute Drawdown ist deutlich höher und im betrachteten Fenster noch nicht aufgeholt.
+
+---
+
+## Fachliches Gesamtfazit
+
+`balanced_v1` bleibt weiterhin der bevorzugte Hauptkandidat.
+
+Die Drawdown-Analyse zeigt aber klarer:
+
+> Die Stärke von `balanced_v1` liegt in der Rendite- und Benchmark-Outperformance. Die Schwäche liegt in zeitweise tieferen Drawdowns als die Benchmark.
+
+Das Profil ist also nicht deshalb riskant, weil es dauerhaft schlechter läuft, sondern weil es innerhalb erfolgreicher Phasen zwischenzeitlich deutlicher zurückfallen kann.
+
+### Positive Punkte
+
+* Benchmark-Outperformance in allen drei untersuchten Marktphasen.
+* In 2022 trotz Stressphase gute relative Gesamtleistung.
+* Drawdowns in 2022 und 2023 wurden wieder aufgeholt.
+* Besseres Risiko/Rendite-Verhältnis als `offensive_v1`.
+* Deutlich bessere Rendite als `conservative_v1`.
+
+### Kritische Punkte
+
+* Drawdown-Fenster können tiefer ausfallen als beim Benchmark.
+* Besonders `recovery_2023` zeigt einen deutlichen Drawdown-Nachteil.
+* `recent_2024_2025` zeigt den tiefsten Drawdown und keine Recovery im betrachteten Fenster.
+* Exakte Ticker-Ursachen können mit den aktuellen Artefakten noch nicht berechnet werden.
+
+---
+
+## Konsequenz für die weitere Analyse
+
+Aktuell ergibt sich daraus noch kein direkter Optimierungsauftrag.
+
+Stattdessen sollten als nächstes zusätzliche Risikokennzahlen ergänzt oder ausgewertet werden, um besser beurteilen zu können, ob der Drawdown-Nachteil durch die Outperformance ausreichend kompensiert wird.
+
+Sinnvolle nächste Kennzahlen:
+
+* Calmar Ratio
+* Ulcer Index
+* Time under Water
+* Recovery Duration
+* Downside Capture vs. Benchmark
+* Upside Capture vs. Benchmark
+* Turnover during Drawdown vs. outside Drawdown
+* Sektor-Exposure während Drawdown-Phasen
+
+### Vorläufige Entscheidung
+
+`balanced_v1` bleibt Hauptkandidat.
+
+Eine Strategieänderung ist auf Basis der Drawdown-Analyse noch nicht zwingend angezeigt.
+
+Vor einer Optimierung sollte zuerst entschieden werden, ob der zusätzliche Drawdown gegenüber der Benchmark im Verhältnis zur erzielten Outperformance akzeptabel ist.
+
+Möglicher nächster Abschnitt:
+
+`04.78 – Erweiterte Risiko-Kennzahlen für balanced_v1 planen`
+
+
+## 04.80 – Risk-Metrics-Ergebnis für `balanced_v1`
+
+Nach der Drawdown-Analyse wurde für den aktuellen Hauptkandidaten `balanced_v1` ein separater Risk-Metrics-Report umgesetzt.
+
+Ziel war es, nicht nur die Drawdown-Episoden zu betrachten, sondern besser zu bewerten:
+
+> Ist der zeitweise höhere Drawdown von `balanced_v1` gegenüber der Benchmark durch die erzielte Outperformance ausreichend gerechtfertigt?
+
+### Umsetzung
+
+Neu angelegt:
+
+* `scripts/risk_metrics.py`
+* `scripts/run_risk_metrics.py`
+* `tests/unit/scripts/test_risk_metrics.py`
+* `tests/unit/scripts/test_run_risk_metrics.py`
+
+Erzeugte Reports:
+
+* `reports/strategy_analysis/risk_metrics/balanced_v1_risk_metrics.md`
+* `reports/strategy_analysis/risk_metrics/balanced_v1_risk_metrics.json`
+
+Die Analyse arbeitet ausschließlich lesend auf bestehenden Artefakten.
+
+Es wurden keine Strategie-, Profil-, Scoring-, Ranking-, Rebalance-, Finalisierungs-, Backtest-, Runner-, Compare- oder Walk-forward-Logiken geändert.
+
+### Methodik
+
+Die Berechnung liest:
+
+* `market_phase_matrix_summary.json`
+* die zugehörigen `run_manifest.json`-Dateien
+* Equity-Artefakte
+* Benchmark-Artefakte
+* Trades-Artefakte
+
+Portfolio und Benchmark werden pro Phase auf das jeweilige Phasenfenster geschnitten, per Inner Join auf gemeinsame Datumswerte ausgerichtet und intern auf Startwert `1.0` normalisiert.
+
+Für den Benchmark wird explizit die erste Spalte mit Prefix `BM1_` verwendet.
+
+Die Spalte `equity` in der Benchmark-Datei wird nicht als Benchmark verwendet.
+
+### Enthaltene Kennzahlen
+
+Der Risk-Metrics-Report enthält unter anderem:
+
+| Kennzahl                       | Bedeutung                                      |
+| ------------------------------ | ---------------------------------------------- |
+| Calmar Ratio                   | CAGR im Verhältnis zum maximalen Drawdown      |
+| Ulcer Index                    | Tiefe und Dauer von Drawdowns                  |
+| Pain Index                     | durchschnittlicher absoluter Drawdown          |
+| Time under Water               | Anteil der Zeit unter dem letzten Hoch         |
+| Downside Capture               | Mitfallen an Benchmark-Verlusttagen            |
+| Upside Capture                 | Mitsteigen an Benchmark-Gewinntagen            |
+| Downside Volatility            | annualisierte negative Volatilität             |
+| Sortino Ratio                  | Rendite im Verhältnis zur Downside-Volatilität |
+| Drawdown Duration Distribution | Verteilung von Drawdown-Dauer und -Tiefe       |
+| Turnover Stress Check          | Turnover während/außerhalb von Drawdowns       |
+
+Der Turnover-Stress-Check ist eingeschränkt zu interpretieren, da nur monatliche Trade-Zeilen verfügbar sind.
+
+Hinweis im Report:
+
+[CODE_START]
+monthly trade rows only; turnover timing is approximate
+[CODE_END]
+
+### Verifikation
+
+| Prüfung             |          Ergebnis |
+| ------------------- | ----------------: |
+| Unit-Tests          |         41 passed |
+| Ruff                | All checks passed |
+| Echter Analyse-Lauf |       erfolgreich |
+| Reports erzeugt     |                ja |
+
+---
+
+## Wichtigste Befunde
+
+### Phase `bear_market_2022`
+
+| Kennzahl     | Portfolio | Benchmark | Bewertung                 |
+| ------------ | --------: | --------: | ------------------------- |
+| CAGR         |   -2.55 % |  -13.57 % | Portfolio deutlich besser |
+| Max Drawdown |  -15.25 % |  -17.10 % | Portfolio besser          |
+| Ulcer/Pain   | niedriger |     höher | Portfolio besser          |
+
+### Einordnung
+
+In der Stressphase 2022 zeigt `balanced_v1` ein starkes Ergebnis.
+
+Das Profil verliert deutlich weniger als die Benchmark und weist gleichzeitig bessere Drawdown-Kennzahlen auf.
+
+Bewertung:
+
+> `bear_market_2022` ist eine überzeugende Phase für `balanced_v1`.
+
+---
+
+### Phase `recovery_2023`
+
+| Kennzahl     |  Portfolio | Benchmark | Bewertung               |
+| ------------ | ---------: | --------: | ----------------------- |
+| CAGR         |    30.28 % |   21.57 % | Portfolio besser        |
+| Max Drawdown | schlechter |    besser | Portfolio risikoreicher |
+| Ulcer/Pain   |      höher | niedriger | Portfolio risikoreicher |
+
+### Einordnung
+
+In der Erholungsphase 2023 liefert `balanced_v1` eine deutliche Rendite-Outperformance.
+
+Gleichzeitig sind Max Drawdown, Ulcer Index und Pain Index schlechter als bei der Benchmark.
+
+Bewertung:
+
+> `balanced_v1` erzeugt 2023 höhere Rendite, aber mit mehr zwischenzeitlichem Stress.
+
+Diese Phase bleibt aus Risikosicht besonders relevant.
+
+---
+
+### Phase `recent_2024_2025`
+
+| Kennzahl       |  Portfolio |  Benchmark | Bewertung                      |
+| -------------- | ---------: | ---------: | ------------------------------ |
+| CAGR           |    38.63 % |    18.79 % | Portfolio deutlich besser      |
+| Calmar/Sortino |     besser | schlechter | Portfolio effizienter          |
+| Max Drawdown   | schlechter |     besser | Portfolio tiefer               |
+| Ulcer/Pain     |      höher |  niedriger | Portfolio stärker unter Wasser |
+
+### Einordnung
+
+In der jüngeren Marktphase 2024/2025 ist die Outperformance von `balanced_v1` sehr deutlich.
+
+Gleichzeitig sind Max Drawdown, Ulcer Index und Pain Index schlechter als bei der Benchmark.
+
+Interessant ist aber, dass Calmar und Sortino trotz schlechterem Drawdown besser ausfallen.
+
+Bewertung:
+
+> `balanced_v1` ist in 2024/2025 rendite- und risikoadjustiert stark, aber emotional bzw. drawdownseitig unruhiger als die Benchmark.
+
+---
+
+## Capture-Ratios
+
+Ein besonders wichtiger Befund:
+
+> Downside Capture liegt in allen Phasen unter `1.0`.
+> Upside Capture liegt ebenfalls in allen Phasen unter `1.0`.
+
+### Interpretation
+
+`balanced_v1` fällt an Benchmark-Verlusttagen weniger stark mit.
+
+Gleichzeitig steigt `balanced_v1` an Benchmark-Gewinntagen aber auch weniger stark mit.
+
+Das bedeutet:
+
+> Die Outperformance kommt nicht einfach aus stärkerer Teilnahme an Benchmark-Up-Tagen oder höherem Markthebel.
+
+Die Strategie scheint also nicht nur „mehr Risiko“ bzw. „mehr Beta“ zu nehmen, sondern erzeugt ihre Outperformance aus der Selektions- und Rebalancing-Logik.
+
+Das ist ein wichtiger positiver Befund.
+
+---
+
+## Gesamtbewertung
+
+`balanced_v1` bleibt weiterhin der bevorzugte Hauptkandidat.
+
+### Positive Punkte
+
+* Benchmark-Outperformance in allen untersuchten Marktphasen.
+* In `bear_market_2022` auch risikoseitig besser als die Benchmark.
+* In `recent_2024_2025` trotz höherem Drawdown bessere Calmar-/Sortino-Werte.
+* Downside Capture in allen Phasen unter `1.0`.
+* Outperformance wirkt nicht wie reines Benchmark-Beta.
+* Besseres Risiko-/Rendite-Profil als `offensive_v1`.
+* Deutlich attraktiver als `conservative_v1` als Hauptprofil.
+
+### Kritische Punkte
+
+* In `recovery_2023` schlechtere Drawdown-, Ulcer- und Pain-Werte als die Benchmark.
+* In `recent_2024_2025` ebenfalls höhere Drawdown-Belastung als die Benchmark.
+* Das Profil kann zwischenzeitlich deutlich stärker unter Wasser liegen als der Index.
+* Der höhere Renditepfad ist nicht unbedingt komfortabler.
+
+---
+
+## Vorläufige Entscheidung
+
+`balanced_v1` bleibt Hauptkandidat.
+
+Eine direkte Strategieänderung ist weiterhin nicht zwingend angezeigt.
+
+Die bisherigen Analysen sprechen eher für:
+
+> `balanced_v1` ist leistungsfähig, aber drawdownseitig nicht immer komfortabel.
+
+Vor einer Optimierung sollte deshalb ein bewusstes Entscheidungs-Gate stehen.
+
+---
+
+## Nächster sinnvoller Schritt
+
+Als nächstes sollte entschieden werden, ob wir:
+
+1. `balanced_v1` als Hauptprofil zunächst bestätigen und mit Walk-forward-/OOS-Checks weiter prüfen, oder
+2. eine sehr vorsichtige Risiko-Feinjustierung testen, z. B. bei Sektorlimit, Turnover-Cap oder Risk-Off-Verhalten.
+
+Empfohlene Reihenfolge:
+
+> Erst Entscheidungs-Gate, dann ggf. gezielte Mini-Experimente.
+
+Möglicher nächster Abschnitt:
+
+`04.81 – Entscheidungs-Gate: balanced_v1 bestätigen oder Risiko-Feinjustierung prüfen`
+
+
+## 04.81 – Entscheidungs-Gate: `balanced_v1` bestätigen oder Risiko-Feinjustierung prüfen
+
+Nach Profil-Robustheit, Marktphasen-Matrix, Phase-only-Metriken, Drawdown-Analyse und erweitertem Risk-Metrics-Report liegt nun eine ausreichende Datenbasis für ein erstes Entscheidungs-Gate vor.
+
+Ziel dieses Schritts ist nicht, neue Parameter zu optimieren, sondern bewusst festzulegen:
+
+> Bleibt `balanced_v1` der Hauptkandidat, oder soll vor weiteren Tests bereits eine Risiko-Feinjustierung vorgenommen werden?
+
+---
+
+## Bisherige Befunde
+
+### Technische Stabilität
+
+Die technische Basis ist stabil:
+
+* Backtester und Runner liefern in den geprüften Szenarien paritätische Ergebnisse.
+* Marktphasen-Matrix läuft erfolgreich.
+* Phase-only-Metriken sind verfügbar.
+* Drawdown-Analyse ist verfügbar.
+* Risk-Metrics-Report ist verfügbar.
+* Alle bisherigen Analyseerweiterungen lesen bestehende Artefakte und verändern keine Strategie-/Backtest-/Runner-Logik.
+
+### Fachliche Befunde zu `balanced_v1`
+
+`balanced_v1` hat sich über mehrere Analyseebenen als stärkster Hauptkandidat bestätigt.
+
+Positive Punkte:
+
+* Benchmark-Outperformance in allen geprüften Marktphasen.
+* In `bear_market_2022` auch risikoseitig überzeugend.
+* In `recent_2024_2025` trotz höherem Drawdown bessere Calmar-/Sortino-Werte.
+* Downside Capture in allen Phasen unter `1.0`.
+* Outperformance wirkt nicht wie reines höheres Benchmark-Beta.
+* Besseres Risiko-/Rendite-Profil als `offensive_v1`.
+* Deutlich attraktiver als `conservative_v1` als Hauptprofil.
+
+Kritische Punkte:
+
+* In `recovery_2023` schlechtere Drawdown-, Ulcer- und Pain-Werte als die Benchmark.
+* In `recent_2024_2025` ebenfalls höhere Drawdown-Belastung als die Benchmark.
+* Das Profil kann zeitweise deutlich stärker unter Wasser liegen als der Index.
+* Der Renditepfad ist nicht immer komfortabler, auch wenn die Gesamtrendite besser ist.
+
+---
+
+## Bewertung
+
+Die bisherigen Analysen zeigen kein klares Signal, dass `balanced_v1` sofort verändert werden muss.
+
+Die Drawdown-Schwäche ist real, aber aktuell nicht stark genug, um direkt Parameteränderungen zu rechtfertigen.
+
+Eine sofortige Optimierung wäre riskant, weil sie zu Overfitting auf einzelne Drawdown-Phasen führen könnte, insbesondere auf:
+
+* `recovery_2023`
+* `recent_2024_2025`
+
+Daher sollte nicht direkt an Parametern wie Sektorlimit, Turnover-Cap, Risk-Off-Verhalten oder Gewichtungslogik gedreht werden.
+
+---
+
+## Entscheidung
+
+`balanced_v1` bleibt der bevorzugte Hauptkandidat.
+
+Es erfolgt zunächst keine Strategieänderung.
+
+Die nächste Prüfung soll nicht Optimierung, sondern Robustheitsvalidierung außerhalb der bisher ausgewerteten Perspektiven sein.
+
+Entscheidung:
+
+[CODE_START]
+balanced_v1 bleibt Hauptprofil.
+Keine sofortige Risiko-Feinjustierung.
+Nächster Schritt: Walk-forward-/OOS-Planung.
+[CODE_END]
+
+---
+
+## Begründung
+
+Diese Entscheidung folgt aus drei Überlegungen:
+
+1. `balanced_v1` liefert über alle geprüften Marktphasen eine klare Benchmark-Outperformance.
+2. Die Risiko-Kennzahlen zeigen Schwächen, aber kein vollständiges Warnsignal gegen das Profil.
+3. Eine Optimierung vor Walk-forward-/OOS-Prüfung würde das Risiko erhöhen, die Strategie auf bekannte historische Problemfenster zu überanpassen.
+
+---
+
+## Konsequenz
+
+Der nächste Analyseblock soll prüfen, ob `balanced_v1` auch außerhalb der bisher stark betrachteten Analysefenster robust bleibt.
+
+Dazu soll ein Walk-forward-/OOS-Konzept geplant werden.
+
+Ziele:
+
+* Robustheit auf zeitlich getrennten Abschnitten prüfen.
+* Keine Parameter anhand der Testfenster optimieren.
+* Profile nicht nur im Rückblick bewerten.
+* Overfitting-Risiko reduzieren.
+* Eine belastbarere Grundlage für spätere Mini-Experimente schaffen.
+
+---
+
+## Nächster Abschnitt
+
+`04.82 – Walk-forward-/OOS-Prüfung planen`
+
+## 04.84 – Walk-forward-/OOS-Ergebnis yearly für `balanced_v1`
+
+Nach dem Entscheidungs-Gate wurde eine erste Walk-forward-/OOS-Prüfung für `balanced_v1` umgesetzt.
+
+Ziel war es, `balanced_v1` nicht weiter zu optimieren, sondern in vorab definierten Jahres-OOS-Fenstern zu prüfen.
+
+Die OOS-Ergebnisse sollen nicht zur nachträglichen Parameterwahl verwendet werden.
+
+---
+
+## Umsetzung
+
+Neu angelegt:
+
+* `scripts/run_walk_forward_matrix.py`
+* `tests/unit/scripts/test_run_walk_forward_matrix.py`
+
+Erzeugte Reports:
+
+* `reports/strategy_analysis/walk_forward/walk_forward_summary.md`
+* `reports/strategy_analysis/walk_forward/walk_forward_summary.json`
+
+Das Walk-forward-Skript ruft pro Fenster ausschließlich den zentralen Einstieg auf:
+
+[CODE_START]
+python -m scripts.run_bt_run_agent 
+--profile medium 
+--strategy-profile balanced_v1 
+--warmup-start <warmup_start> 
+--start <oos_start> 
+--end <oos_end> 
+--phase-name <window_name>
+[CODE_END]
+
+Es werden keine Config-Dateien mutiert.
+
+Es wurden keine Strategie-, Profil-, Scoring-, Ranking-, Rebalance-, Finalisierungs-, Backtest-, Runner-, Compare- oder bestehende Marktphasenlogiken geändert.
+
+---
+
+## Fensterlogik
+
+Für 04.83 wurde bewusst `yearly` als erster Walk-forward-/OOS-Modus gewählt.
+
+Rolling-6M wurde zurückgestellt, weil Halbjahresfenster für Risiko- und Drawdown-Kennzahlen stärker rauschanfällig sind.
+
+Verwendete OOS-Fenster:
+
+| Window         | Warmup Start |  OOS Start |    OOS End |
+| -------------- | -----------: | ---------: | ---------: |
+| `oos_2022`     |   2020-07-01 | 2022-01-01 | 2022-12-31 |
+| `oos_2023`     |   2021-07-01 | 2023-01-01 | 2023-12-31 |
+| `oos_2024`     |   2022-07-01 | 2024-01-01 | 2024-12-31 |
+| `oos_2025_ytd` |   2023-01-01 | 2025-01-01 | 2025-10-08 |
+
+---
+
+## Technischer Status
+
+Laut finalem Walk-forward-Report:
+
+| Kennzahl             | Ergebnis |
+| -------------------- | -------: |
+| Runs total           |        4 |
+| Runs successful      |        4 |
+| Runs failed          |        0 |
+| Compare mismatched   |        0 |
+| Outperformed windows |        4 |
+
+Alle vier OOS-Fenster lieferten:
+
+[CODE_START]
+3 matched, 0 mismatched
+[CODE_END]
+
+### Hinweis zu `profile medium`
+
+Der Report weist korrekt darauf hin, dass `profile medium` nur die letzten 3 BT-as_of-Punkte technisch per Runner vergleicht.
+
+Die OOS-Metriken selbst werden aber aus dem vollständigen Equity-/Benchmark-Segment des jeweiligen OOS-Fensters berechnet.
+
+Damit gilt:
+
+* BT/RUN-Parität wurde für die letzten 3 OOS-Rebalancepunkte geprüft.
+* Die OOS-Performance-Metriken betrachten das gesamte OOS-Fenster.
+* Es wird nicht behauptet, dass jeder einzelne monatliche OOS-Rebalancepunkt technisch verglichen wurde.
+
+---
+
+## OOS-Ergebnisse
+
+| Window         | Portfolio Return | Benchmark Return | Relative Return | Outperformed | Portfolio MaxDD | Benchmark MaxDD | DD Better |  Sharpe | Turnover |
+| -------------- | ---------------: | ---------------: | --------------: | -----------: | --------------: | --------------: | --------: | ------: | -------: |
+| `oos_2022`     |          -2.52 % |         -13.42 % |         10.90 % |         true |        -15.25 % |        -17.10 % |      true | -0.0188 |   5.00 % |
+| `oos_2023`     |          29.78 % |          21.23 % |          8.55 % |         true |        -13.46 % |         -7.08 % |     false |  1.4481 |  18.33 % |
+| `oos_2024`     |          65.81 % |          33.66 % |         32.15 % |         true |        -14.29 % |         -8.27 % |     false |  1.8854 |  18.52 % |
+| `oos_2025_ytd` |          10.58 % |           0.74 % |          9.84 % |         true |        -25.25 % |        -23.32 % |     false |  0.6691 |  16.00 % |
+
+---
+
+## Fachliche Bewertung
+
+### Benchmark-Outperformance
+
+`balanced_v1` schlägt die Benchmark in allen vier OOS-Fenstern.
+
+| Window         | Relative Return |
+| -------------- | --------------: |
+| `oos_2022`     |         10.90 % |
+| `oos_2023`     |          8.55 % |
+| `oos_2024`     |         32.15 % |
+| `oos_2025_ytd` |          9.84 % |
+
+Der schwächste relative OOS-Wert ist:
+
+[CODE_START]
+oos_2023: +8.55 %
+[CODE_END]
+
+Damit bestätigt die yearly-OOS-Auswertung, dass die Outperformance von `balanced_v1` nicht nur aus einem einzelnen Marktphasenfenster stammt.
+
+### Drawdown-Seite
+
+Die bekannte Drawdown-Schwäche bleibt sichtbar.
+
+| Window         | DD Better vs. Benchmark |
+| -------------- | ----------------------: |
+| `oos_2022`     |                    true |
+| `oos_2023`     |                   false |
+| `oos_2024`     |                   false |
+| `oos_2025_ytd` |                   false |
+
+`balanced_v1` hat also nur im Stressjahr 2022 einen besseren Max Drawdown als die Benchmark.
+
+In 2023, 2024 und 2025 YTD ist der Portfolio-MaxDD schlechter als die Benchmark.
+
+---
+
+## Interpretation
+
+Die OOS-Auswertung bestätigt das bisherige Profilbild:
+
+### Stärken
+
+* robuste Benchmark-Outperformance in allen OOS-Jahresfenstern
+* kein isolierter Einmal-Effekt
+* starke relative Rendite auch im schwächsten OOS-Fenster
+* technische BT/RUN-Parität in allen geprüften OOS-Fenstern
+* `balanced_v1` bleibt deutlich überzeugender als eine sofortige Risiko-Optimierung auf einzelne Drawdowns
+
+### Schwächen
+
+* Max Drawdown schlechter als Benchmark in 3 von 4 OOS-Fenstern
+* Drawdown-Komfort bleibt die zentrale Schwäche
+* `profile medium` prüft technisch nur 3 Runner-Compare-Punkte pro Fenster
+* Risk-Metrics sind im Walk-forward-Report noch nicht integriert
+
+---
+
+## Unstimmigkeit im Codex-Fließtext
+
+Im Codex-Fließtext wurde zwischendurch ein technischer Runner-Fehler für `oos_2024` erwähnt.
+
+Der finale Report zeigt jedoch:
+
+* `oos_2024` success = true
+* compare matched = true
+* compare message = `3 matched, 0 mismatched`
+
+Für die Bewertung wird daher der finale Reportstand verwendet.
+
+Diese Unstimmigkeit sollte lediglich als Hinweis dokumentiert werden, falls später Log-/Report-Abweichungen geprüft werden.
+
+---
+
+## Vorläufiges Fazit
+
+Die Walk-forward-/OOS-Auswertung bestätigt `balanced_v1` deutlich als Hauptkandidat.
+
+Die Strategie zeigt in allen geprüften OOS-Jahresfenstern Benchmark-Outperformance.
+
+Die bekannte Drawdown-Schwäche bleibt bestehen, ist aber auf Basis der bisherigen Analysen kein Grund für eine sofortige Strategieänderung.
+
+Entscheidung:
+
+[CODE_START]
+balanced_v1 bleibt Hauptprofil.
+Keine unmittelbare Risiko-Feinjustierung.
+Nächster Schritt: balanced_v1 als vorläufiges Produktions-/Runner-Hauptprofil markieren.
+[CODE_END]
+
+---
+
+## Offene Folgepunkte
+
+Sinnvolle nächste Schritte:
+
+1. Risk-Metrics optional in Walk-forward-Reports integrieren.
+2. Später Rolling-6M-OOS als zusätzliche Stabilitätsprüfung.
+3. Später optional Profilvergleich in Walk-forward-Matrix als reine Stabilitätsanalyse.
+4. Danach ggf. sehr vorsichtige Risiko-Mini-Experimente, aber erst nach expliziter Entscheidung.
+
+Möglicher nächster Abschnitt:
+
+`04.85 – balanced_v1 als vorläufiges Produktions-/Runner-Hauptprofil markieren`
+
+## 04.85 – `balanced_v1` als vorläufiges Produktions-/Runner-Hauptprofil markieren
+
+Nach Profil-Robustheit, Marktphasen-Matrix, Phase-only-Metriken, Drawdown-Analyse, Risk-Metrics und yearly Walk-forward-/OOS-Prüfung liegt eine ausreichende Entscheidungsbasis vor, um `balanced_v1` als vorläufiges Hauptprofil für die nächste Systemstufe zu markieren.
+
+Ziel dieses Schritts ist keine produktive Investitionsfreigabe, sondern eine klare Projektentscheidung:
+
+> `balanced_v1` ist der aktuelle Hauptkandidat für weitere Runner-/Produktionsvorbereitung.
+
+---
+
+## Grundlage der Entscheidung
+
+Die Entscheidung basiert auf folgenden Analysebausteinen:
+
+* Profil-Robustheitsmatrix
+* Marktphasen-Matrix
+* Phase-only-Metriken
+* Drawdown-Analyse
+* Risk-Metrics-Report
+* Walk-forward-/OOS-Jahresfenster
+
+Alle diese Schritte wurden durchgeführt, ohne Strategie-, Profil-, Scoring-, Ranking-, Rebalance-, Finalisierungs-, Backtest-, Runner- oder Compare-Logik zu verändern.
+
+---
+
+## Technischer Status
+
+Die technische Basis ist stabil genug für die nächste Projektstufe.
+
+Wichtige Punkte:
+
+* Backtester/Runner-Parität ist in den geprüften Szenarien hergestellt.
+* Decision-Bundles und Compare-Mechanik funktionieren.
+* Marktphasenläufe funktionieren mit Warmup und OOS-/Phasenfenstern.
+* Phase-only-Metriken werden aus Equity-/Benchmark-Segmenten berechnet.
+* Drawdown- und Risk-Metrics-Reports lesen bestehende Artefakte.
+* Walk-forward yearly wurde für `balanced_v1` erfolgreich ausgeführt.
+* Keine Config-Mutation in den Analyse-Skripten.
+* Analyse-Reports sind reproduzierbar erzeugbar.
+
+---
+
+## Fachlicher Status von `balanced_v1`
+
+`balanced_v1` zeigt über die bisherigen Analysen das überzeugendste Gesamtbild.
+
+### Stärken
+
+* Benchmark-Outperformance in allen geprüften Marktphasen.
+* Benchmark-Outperformance in allen yearly-OOS-Fenstern.
+* Gute Leistung in der Stressphase `bear_market_2022`.
+* Besseres Risiko-/Rendite-Profil als `offensive_v1`.
+* Deutlich attraktiver als `conservative_v1` als Hauptprofil.
+* Downside Capture in allen geprüften Phasen unter `1.0`.
+* Outperformance wirkt nicht wie reines höheres Benchmark-Beta.
+* Stabiler Kompromiss aus Rendite, Risiko und Turnover.
+
+### Schwächen
+
+* Max Drawdown ist in mehreren Phasen schlechter als die Benchmark.
+* Ulcer-/Pain-Werte sind in 2023 und 2024/2025 schlechter als bei der Benchmark.
+* Drawdown-Komfort bleibt die zentrale Schwäche.
+* In `recent_2024_2025` wurde der größte Drawdown im Phasenfenster noch nicht recovered.
+* `profile medium` prüft technisch nur die letzten 3 Runner-Compare-Punkte je Fenster.
+
+---
+
+## Entscheidung
+
+`balanced_v1` wird als vorläufiges Produktions-/Runner-Hauptprofil markiert.
+
+Diese Entscheidung bedeutet:
+
+[CODE_START]
+balanced_v1 ist der aktuelle Hauptkandidat.
+Keine sofortige Risiko-Feinjustierung.
+Keine Parameteränderung auf Basis einzelner Drawdown-Fenster.
+Nächster Schritt: Runner-/Produktionsvorbereitung und Kontrollmechanismen.
+[CODE_END]
+
+---
+
+## Keine sofortige Optimierung
+
+Trotz der erkannten Drawdown-Schwächen wird aktuell keine Strategieänderung vorgenommen.
+
+Begründung:
+
+1. Die Outperformance ist über mehrere unabhängige Sichtweisen stabil.
+2. Die Drawdown-Schwäche ist real, aber nicht stark genug für eine direkte Parameteränderung.
+3. Eine Optimierung auf 2023 oder 2024/2025 könnte Overfitting erzeugen.
+4. Die nächsten Schritte sollten Kontroll-, Reporting- und Runner-Sicherheit betreffen, nicht sofort neue Parameter.
+
+---
+
+## Bedeutung für die nächste Projektphase
+
+Mit 04.85 endet die aktuelle Bewertungsrunde nicht vollständig, aber sie erreicht einen klaren Zwischenstand.
+
+`balanced_v1` ist nun das Profil, mit dem die nächste Systemstufe vorbereitet werden kann.
+
+Mögliche nächste Themen:
+
+* Runner-Vorbereitung mit `balanced_v1`
+* Produktions-/Paper-Run-Konzept
+* Kontrollreport vor echter Nutzung
+* Positions-/Order-Vorschlagsreport
+* Sicherheitschecks vor Rebalance
+* Logging und Auditierbarkeit
+* Konfig-Snapshot pro Run
+* manuelle Freigabe vor Orders
+* klare Risiko-Hinweise im Report
+
+---
+
+## Vorläufiges Fazit
+
+`balanced_v1` ist nicht perfekt, aber aktuell das überzeugendste Profil.
+
+Die Strategie liefert robuste Outperformance, hat aber einen weniger komfortablen Drawdown-Pfad als die Benchmark.
+
+Der nächste Schritt sollte deshalb nicht Optimierung sein, sondern:
+
+> `balanced_v1` kontrolliert in Richtung Runner-/Produktionsvorbereitung bringen.
+
+Möglicher nächster Projektabschnitt:
+
+`05 – Produktionsprofil & Runner-Vorbereitung`
+
+
+
+
+
+
+
+
 
 
 

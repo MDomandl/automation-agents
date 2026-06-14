@@ -8,11 +8,13 @@ from app.domain.bt_run.run_context import CompareMode, RunContext, RunnerMode, R
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
 from scripts.run_bt_run_agent import (
+    PortfolioFileError,
     build_backtest_command,
     build_backtest_profile_args,
     build_paper_run_artifact,
     build_run_context,
     build_run_manifest,
+    load_portfolio_positions_csv,
     load_strategy_profile_for_cli,
     parse_args,
     resolve_profile_behavior,
@@ -91,10 +93,18 @@ def test_parse_args_accepts_runner_mode_paper() -> None:
     assert args.runner_mode == "paper"
 
 
+def test_parse_args_accepts_portfolio_file() -> None:
+    args = parse_args(["--runner-mode", "paper", "--portfolio-file", "positions.csv"])
+
+    assert args.runner_mode == "paper"
+    assert args.portfolio_file == "positions.csv"
+
+
 def test_parse_args_defaults_runner_mode_to_analysis() -> None:
     args = parse_args([])
 
     assert args.runner_mode == "analysis"
+    assert args.portfolio_file is None
 
 
 def test_parse_args_rejects_invalid_warmup_phase_order() -> None:
@@ -668,6 +678,8 @@ def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: P
     assert artifact["strategy_profile_name"] == "balanced_v1"
     assert artifact["universe"] == "sp500"
     assert artifact["decision_bundle"] == str(latest_path)
+    assert artifact["portfolio_source"] == "runner_previous_state"
+    assert artifact["portfolio_file"] is None
     assert artifact["as_of"] == "2025-10-08"
     assert artifact["target_positions"] == {"AAPL": 0.15, "NVDA": 0.25, "CASH": 0.60}
     assert artifact["cash_weight"] == 0.60
@@ -689,6 +701,128 @@ def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: P
     assert "No broker connection was used." in artifact["warnings"]
     assert "This report is a proposal only." in artifact["warnings"]
     assert "[WARN] example" in artifact["warnings"]
+
+
+def test_load_portfolio_positions_csv_reads_normalized_weights(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\n aapl ,0.12\nMSFT,0.08\n", encoding="utf-8")
+
+    positions = load_portfolio_positions_csv(portfolio_path)
+
+    assert positions == {"AAPL": 0.12, "MSFT": 0.08}
+
+
+def test_load_portfolio_positions_csv_rejects_missing_file(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "missing.csv"
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected missing portfolio file to raise")
+
+    assert "Portfolio file not found" in message
+    assert str(portfolio_path) in message
+
+
+def test_load_portfolio_positions_csv_rejects_negative_weight(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL,-0.01\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected negative weight to raise")
+
+    assert "negative weight" in message
+    assert "AAPL" in message
+
+
+def test_load_portfolio_positions_csv_rejects_duplicate_symbol(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\naapl,0.10\nAAPL,0.20\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected duplicate symbol to raise")
+
+    assert "duplicate symbol" in message
+    assert "AAPL" in message
+
+
+def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    latest_path = decisions_dir / "RUN_latest_2025-10-08.json"
+    latest_path.write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "previous_weights": {"AAPL": 0.99},
+                "new_weights": {"AAPL": 0.15, "NVDA": 0.25},
+            }
+        ),
+        encoding="utf-8",
+    )
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\naapl,0.10\nMSFT,0.20\n", encoding="utf-8")
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=decisions_dir,
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    artifact = build_paper_run_artifact(context, result, portfolio_file=portfolio_path)
+
+    assert artifact["decision_bundle"] == str(latest_path)
+    assert artifact["portfolio_source"] == "portfolio_file"
+    assert artifact["portfolio_file"] == str(portfolio_path)
+    assert {
+        "ticker": "AAPL",
+        "previous_weight": 0.10,
+        "target_weight": 0.15,
+        "delta_weight": 0.04999999999999999,
+    } in artifact["buy_proposals"]
+    assert {
+        "ticker": "NVDA",
+        "previous_weight": 0.0,
+        "target_weight": 0.25,
+        "delta_weight": 0.25,
+    } in artifact["buy_proposals"]
+    assert {
+        "ticker": "MSFT",
+        "previous_weight": 0.20,
+        "target_weight": 0.0,
+        "delta_weight": -0.20,
+    } in artifact["sell_proposals"]
+    assert artifact["orders_executed"] is False
+    assert artifact["execution"]["orders_executed"] is False
+    assert artifact["execution"]["broker_connected"] is False
+    assert artifact["execution"]["live_trading_enabled"] is False
 
 
 def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
@@ -725,6 +859,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
             "live_trading_enabled": False,
         },
         "decision_bundle": "RUN_latest.json",
+        "portfolio_source": "portfolio_file",
+        "portfolio_file": str(tmp_path / "positions.csv"),
         "cash_weight": 0.1,
         "target_positions": {"AAPL": 0.9, "CASH": 0.1},
         "buy_proposals": [
@@ -777,6 +913,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert decoded["execution"]["orders_executed"] is False
     assert decoded["broker_connected"] is False
     assert decoded["live_trading_enabled"] is False
+    assert decoded["portfolio_source"] == "portfolio_file"
+    assert decoded["portfolio_file"] == str(tmp_path / "positions.csv")
     assert decoded["target_positions"] == {"AAPL": 0.9, "CASH": 0.1}
     assert decoded["buy_proposals"][0]["delta_weight"] == 0.4
     assert decoded["sell_proposals"][0]["delta_weight"] == -0.4
@@ -790,6 +928,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "orders_executed: false" in text
     assert "broker_connected: false" in text
     assert "live_trading_enabled: false" in text
+    assert "portfolio_source: portfolio_file" in text
+    assert f"portfolio_file: {tmp_path / 'positions.csv'}" in text
     assert "Target Positions" in text
     assert "- AAPL: 0.900000" in text
     assert "Buy Proposals" in text

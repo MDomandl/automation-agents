@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import csv
 import json
 import re
 import shutil
@@ -39,6 +40,10 @@ class ProfileBehavior:
     backtest_lookback_months: int | None = None
     compare_point_count: int = 1
     description: str = ""
+
+
+class PortfolioFileError(ValueError):
+    pass
 
 
 def resolve_profile_behavior(profile: RunProfile) -> ProfileBehavior:
@@ -362,6 +367,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--portfolio-file",
+        help=(
+            "Optional CSV with symbol,weight columns for paper-mode previous weights. "
+            "This is a local report input only and never triggers order execution."
+        ),
+    )
+    parser.add_argument(
         "--warmup-start",
         type=_parse_iso_date,
         help=(
@@ -449,12 +461,20 @@ def build_paper_run_artifact(
     result: RunResult,
     *,
     strategy_profile: StrategyProfile | None = None,
+    portfolio_file: Path | None = None,
 ) -> dict[str, object]:
     latest_bundle = _load_latest_decision_bundle(context.decisions_dir, "RUN")
     target_positions = _extract_weights(latest_bundle["payload"]) if latest_bundle else {}
-    previous_positions = (
-        _extract_previous_weights(latest_bundle["payload"]) if latest_bundle else {}
-    )
+    if portfolio_file is not None:
+        previous_positions = load_portfolio_positions_csv(portfolio_file)
+        portfolio_source = "portfolio_file"
+        portfolio_file_path = str(portfolio_file)
+    else:
+        previous_positions = (
+            _extract_previous_weights(latest_bundle["payload"]) if latest_bundle else {}
+        )
+        portfolio_source = "runner_previous_state"
+        portfolio_file_path = None
     proposals = _build_weight_change_proposals(previous_positions, target_positions)
 
     return {
@@ -476,6 +496,8 @@ def build_paper_run_artifact(
         "strategy_profile_label": strategy_profile.label if strategy_profile else None,
         "universe": strategy_profile.universe if strategy_profile else None,
         "decision_bundle": latest_bundle["path"] if latest_bundle else None,
+        "portfolio_source": portfolio_source,
+        "portfolio_file": portfolio_file_path,
         "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
         "target_positions": target_positions,
         "cash_weight": _cash_weight(target_positions),
@@ -544,6 +566,8 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 "broker_connected: false",
                 "live_trading_enabled: false",
                 f"decision_bundle: {artifact['decision_bundle']}",
+                f"portfolio_source: {artifact.get('portfolio_source')}",
+                f"portfolio_file: {artifact.get('portfolio_file')}",
                 f"cash_weight: {artifact['cash_weight']}",
                 f"buy_proposals_count: {buy_count}",
                 f"sell_proposals_count: {sell_count}",
@@ -670,6 +694,53 @@ def _normalize_weights(value: object) -> dict[str, float] | None:
     return None
 
 
+def load_portfolio_positions_csv(path: Path) -> dict[str, float]:
+    try:
+        with path.open(newline="", encoding="utf-8-sig") as file_obj:
+            reader = csv.DictReader(file_obj)
+            fieldnames = set(reader.fieldnames or ())
+            missing = {"symbol", "weight"} - fieldnames
+            if missing:
+                missing_fields = ", ".join(sorted(missing))
+                raise PortfolioFileError(
+                    f"Invalid portfolio file {path}: missing required column(s): "
+                    f"{missing_fields}"
+                )
+
+            positions: dict[str, float] = {}
+            for line_number, row in enumerate(reader, start=2):
+                symbol = str(row.get("symbol", "")).strip().upper()
+                if not symbol:
+                    raise PortfolioFileError(
+                        f"Invalid portfolio file {path}: empty symbol in line {line_number}"
+                    )
+                if symbol in positions:
+                    raise PortfolioFileError(
+                        f"Invalid portfolio file {path}: duplicate symbol {symbol!r}"
+                    )
+
+                raw_weight = str(row.get("weight", "")).strip()
+                try:
+                    weight = float(raw_weight)
+                except ValueError as exc:
+                    raise PortfolioFileError(
+                        f"Invalid portfolio file {path}: invalid weight for {symbol!r} "
+                        f"in line {line_number}: {raw_weight!r}"
+                    ) from exc
+                if weight < 0:
+                    raise PortfolioFileError(
+                        f"Invalid portfolio file {path}: negative weight for {symbol!r} "
+                        f"in line {line_number}"
+                    )
+                positions[symbol] = weight
+    except FileNotFoundError as exc:
+        raise PortfolioFileError(f"Portfolio file not found: {path}") from exc
+    except OSError as exc:
+        raise PortfolioFileError(f"Could not read portfolio file {path}: {exc}") from exc
+
+    return positions
+
+
 def _build_weight_change_proposals(
     previous_weights: dict[str, float],
     target_weights: dict[str, float],
@@ -717,6 +788,12 @@ def main() -> None:
 
     profile = RunProfile(args.profile)
     runner_mode = RunnerMode(args.runner_mode)
+    portfolio_file = Path(args.portfolio_file) if args.portfolio_file else None
+    if runner_mode == RunnerMode.PAPER and portfolio_file is not None:
+        try:
+            load_portfolio_positions_csv(portfolio_file)
+        except PortfolioFileError as exc:
+            raise SystemExit(f"error: {exc}") from exc
     context = build_run_context(profile, runner_mode)
     profile_behavior = resolve_profile_behavior(profile)
     context.output_dir.mkdir(parents=True, exist_ok=True)
@@ -917,6 +994,7 @@ def main() -> None:
             context,
             result,
             strategy_profile=strategy_profile,
+            portfolio_file=portfolio_file,
         )
         paper_report_path = write_paper_run_report(context, paper_artifact)
         manifest["paper"] = paper_artifact
