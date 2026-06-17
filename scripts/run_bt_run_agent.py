@@ -31,6 +31,7 @@ OUTPUT_PATH_RE = re.compile(
     r"^(?P<label>Equity|Positions|Trades|Bench|Summary):\s*(?P<path>.+?)\s*$",
     re.MULTILINE,
 )
+PROPOSAL_DELTA_TOLERANCE = 0.00001
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,6 +477,19 @@ def build_paper_run_artifact(
         portfolio_source = "runner_previous_state"
         portfolio_file_path = None
     proposals = _build_weight_change_proposals(previous_positions, target_positions)
+    proposal_delta_basis = (
+        "local portfolio file"
+        if portfolio_source == "portfolio_file"
+        else "runner previous-state"
+    )
+    technical_info = [
+        warning for warning in result.warnings if warning.strip().startswith("[INFO]")
+    ]
+    result_warnings = [
+        warning
+        for warning in result.warnings
+        if not warning.strip().startswith("[INFO]")
+    ]
 
     return {
         "run_id": context.run_id,
@@ -498,6 +512,8 @@ def build_paper_run_artifact(
         "decision_bundle": latest_bundle["path"] if latest_bundle else None,
         "portfolio_source": portfolio_source,
         "portfolio_file": portfolio_file_path,
+        "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
+        "proposal_delta_basis": proposal_delta_basis,
         "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
         "target_positions": target_positions,
         "cash_weight": _cash_weight(target_positions),
@@ -521,8 +537,9 @@ def build_paper_run_artifact(
             "No broker connection was used.",
             "This report is a proposal only.",
             "Manual approval is required before any future live-trading implementation.",
-            *result.warnings,
+            *result_warnings,
         ],
+        "technical_info": technical_info,
     }
 
 
@@ -540,6 +557,8 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
     hold_lines = _format_proposal_lines(artifact.get("hold_proposals", []))
     warnings = artifact.get("warnings", [])
     warning_lines = "\n".join(f"- {warning}" for warning in warnings)
+    technical_info = artifact.get("technical_info", [])
+    technical_info_lines = "\n".join(f"- {info}" for info in technical_info)
     review = artifact.get("human_review_required", {})
     checklist = review.get("checklist", []) if isinstance(review, dict) else []
     checklist_lines = "\n".join(f"- Check {item}." for item in checklist)
@@ -568,6 +587,12 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 f"decision_bundle: {artifact['decision_bundle']}",
                 f"portfolio_source: {artifact.get('portfolio_source')}",
                 f"portfolio_file: {artifact.get('portfolio_file')}",
+                f"proposal_delta_tolerance: {artifact.get('proposal_delta_tolerance')}",
+                f"proposal_delta_basis: {artifact.get('proposal_delta_basis')}",
+                (
+                    "proposal_delta_note: Proposal deltas are calculated against the "
+                    f"{artifact.get('proposal_delta_basis')}."
+                ),
                 f"cash_weight: {artifact['cash_weight']}",
                 f"buy_proposals_count: {buy_count}",
                 f"sell_proposals_count: {sell_count}",
@@ -586,6 +611,9 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 "",
                 "Warnings",
                 warning_lines or "- None",
+                "",
+                "Technical Info",
+                technical_info_lines or "- None",
                 "",
                 "Human Review Required",
                 (
@@ -760,9 +788,9 @@ def _build_weight_change_proposals(
             "target_weight": target,
             "delta_weight": delta,
         }
-        if delta > 0:
+        if delta > PROPOSAL_DELTA_TOLERANCE:
             proposals["buy"].append(item)
-        elif delta < 0:
+        elif delta < -PROPOSAL_DELTA_TOLERANCE:
             proposals["sell"].append(item)
         else:
             proposals["hold"].append(item)

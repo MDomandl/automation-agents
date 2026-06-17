@@ -8,6 +8,7 @@ from app.domain.bt_run.run_context import CompareMode, RunContext, RunnerMode, R
 from app.domain.bt_run.run_result import CompareResult, RunResult, StepResult
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
 from scripts.run_bt_run_agent import (
+    PROPOSAL_DELTA_TOLERANCE,
     PortfolioFileError,
     build_backtest_command,
     build_backtest_profile_args,
@@ -680,6 +681,8 @@ def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: P
     assert artifact["decision_bundle"] == str(latest_path)
     assert artifact["portfolio_source"] == "runner_previous_state"
     assert artifact["portfolio_file"] is None
+    assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
+    assert artifact["proposal_delta_basis"] == "runner previous-state"
     assert artifact["as_of"] == "2025-10-08"
     assert artifact["target_positions"] == {"AAPL": 0.15, "NVDA": 0.25, "CASH": 0.60}
     assert artifact["cash_weight"] == 0.60
@@ -794,6 +797,10 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
         backtest=StepResult(True),
         runner=StepResult(True),
         compare=CompareResult(success=True, matched=True, message="ok"),
+        warnings=(
+            "[INFO] Runner previous-state seeded from backtest positions: rows=2",
+            "[WARN] example",
+        ),
     )
 
     artifact = build_paper_run_artifact(context, result, portfolio_file=portfolio_path)
@@ -801,6 +808,13 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
     assert artifact["decision_bundle"] == str(latest_path)
     assert artifact["portfolio_source"] == "portfolio_file"
     assert artifact["portfolio_file"] == str(portfolio_path)
+    assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
+    assert artifact["proposal_delta_basis"] == "local portfolio file"
+    assert "[WARN] example" in artifact["warnings"]
+    assert not any("previous-state seeded" in warning for warning in artifact["warnings"])
+    assert artifact["technical_info"] == [
+        "[INFO] Runner previous-state seeded from backtest positions: rows=2"
+    ]
     assert {
         "ticker": "AAPL",
         "previous_weight": 0.10,
@@ -823,6 +837,112 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
     assert artifact["execution"]["orders_executed"] is False
     assert artifact["execution"]["broker_connected"] is False
     assert artifact["execution"]["live_trading_enabled"] is False
+
+
+def test_build_paper_run_artifact_classifies_proposals_with_tolerance(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    (decisions_dir / "RUN_latest_2025-10-08.json").write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "new_weights": {
+                    "BUY": 0.10002,
+                    "SELL": 0.09998,
+                    "HOLD_POS": 0.100009,
+                    "HOLD_NEG": 0.099991,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text(
+        "symbol,weight\nBUY,0.10\nSELL,0.10\nHOLD_POS,0.10\nHOLD_NEG,0.10\n",
+        encoding="utf-8",
+    )
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=decisions_dir,
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    artifact = build_paper_run_artifact(context, result, portfolio_file=portfolio_path)
+
+    assert [item["ticker"] for item in artifact["buy_proposals"]] == ["BUY"]
+    assert [item["ticker"] for item in artifact["sell_proposals"]] == ["SELL"]
+    assert [item["ticker"] for item in artifact["hold_proposals"]] == [
+        "HOLD_NEG",
+        "HOLD_POS",
+    ]
+    hold_deltas = {
+        item["ticker"]: item["delta_weight"] for item in artifact["hold_proposals"]
+    }
+    assert hold_deltas["HOLD_POS"] > 0
+    assert hold_deltas["HOLD_NEG"] < 0
+
+
+def test_build_paper_run_artifact_keeps_runner_previous_state_with_tolerance(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    (decisions_dir / "RUN_latest_2025-10-08.json").write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "previous_weights": {"TINY": 0.111111},
+                "new_weights": {"TINY": 0.1111111111111111},
+            }
+        ),
+        encoding="utf-8",
+    )
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=decisions_dir,
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    artifact = build_paper_run_artifact(context, result)
+
+    assert artifact["portfolio_source"] == "runner_previous_state"
+    assert artifact["buy_proposals"] == []
+    assert artifact["sell_proposals"] == []
+    assert [item["ticker"] for item in artifact["hold_proposals"]] == ["TINY"]
 
 
 def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
@@ -861,6 +981,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
         "decision_bundle": "RUN_latest.json",
         "portfolio_source": "portfolio_file",
         "portfolio_file": str(tmp_path / "positions.csv"),
+        "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
+        "proposal_delta_basis": "local portfolio file",
         "cash_weight": 0.1,
         "target_positions": {"AAPL": 0.9, "CASH": 0.1},
         "buy_proposals": [
@@ -903,6 +1025,9 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
             "No broker connection was used.",
             "This report is a proposal only.",
         ],
+        "technical_info": [
+            "[INFO] Runner previous-state seeded from backtest positions: rows=2",
+        ],
     }
 
     report_path = write_paper_run_report(context, artifact)
@@ -915,6 +1040,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert decoded["live_trading_enabled"] is False
     assert decoded["portfolio_source"] == "portfolio_file"
     assert decoded["portfolio_file"] == str(tmp_path / "positions.csv")
+    assert decoded["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
+    assert decoded["proposal_delta_basis"] == "local portfolio file"
     assert decoded["target_positions"] == {"AAPL": 0.9, "CASH": 0.1}
     assert decoded["buy_proposals"][0]["delta_weight"] == 0.4
     assert decoded["sell_proposals"][0]["delta_weight"] == -0.4
@@ -930,6 +1057,12 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "live_trading_enabled: false" in text
     assert "portfolio_source: portfolio_file" in text
     assert f"portfolio_file: {tmp_path / 'positions.csv'}" in text
+    assert f"proposal_delta_tolerance: {PROPOSAL_DELTA_TOLERANCE}" in text
+    assert "proposal_delta_basis: local portfolio file" in text
+    assert (
+        "proposal_delta_note: Proposal deltas are calculated against the "
+        "local portfolio file."
+    ) in text
     assert "Target Positions" in text
     assert "- AAPL: 0.900000" in text
     assert "Buy Proposals" in text
@@ -937,6 +1070,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "Sell Proposals" in text
     assert "- MSFT: previous 0.400000, target 0.000000, delta -0.400000" in text
     assert "Hold Proposals" in text
+    assert "Technical Info" in text
+    assert "Runner previous-state seeded from backtest positions" in text
     assert "Human Review Required" in text
     assert "- Check current market data." in text
     assert "- Check actual portfolio positions." in text
