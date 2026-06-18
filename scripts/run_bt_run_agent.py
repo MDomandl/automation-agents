@@ -375,6 +375,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--portfolio-name",
+        help=(
+            "Optional local label for the portfolio baseline shown in paper reports. "
+            "This is metadata only and does not affect proposals."
+        ),
+    )
+    parser.add_argument(
         "--warmup-start",
         type=_parse_iso_date,
         help=(
@@ -463,6 +470,7 @@ def build_paper_run_artifact(
     *,
     strategy_profile: StrategyProfile | None = None,
     portfolio_file: Path | None = None,
+    portfolio_name: str | None = None,
 ) -> dict[str, object]:
     latest_bundle = _load_latest_decision_bundle(context.decisions_dir, "RUN")
     target_positions = _extract_weights(latest_bundle["payload"]) if latest_bundle else {}
@@ -510,6 +518,7 @@ def build_paper_run_artifact(
         "strategy_profile_label": strategy_profile.label if strategy_profile else None,
         "universe": strategy_profile.universe if strategy_profile else None,
         "decision_bundle": latest_bundle["path"] if latest_bundle else None,
+        "portfolio_name": portfolio_name,
         "portfolio_source": portfolio_source,
         "portfolio_file": portfolio_file_path,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
@@ -562,6 +571,11 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
     review = artifact.get("human_review_required", {})
     checklist = review.get("checklist", []) if isinstance(review, dict) else []
     checklist_lines = "\n".join(f"- Check {item}." for item in checklist)
+    portfolio_name_lines = (
+        [f"portfolio_name: {artifact.get('portfolio_name')}"]
+        if artifact.get("portfolio_name")
+        else []
+    )
     txt_path.write_text(
         "\n".join(
             [
@@ -585,6 +599,7 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 "broker_connected: false",
                 "live_trading_enabled: false",
                 f"decision_bundle: {artifact['decision_bundle']}",
+                *portfolio_name_lines,
                 f"portfolio_source: {artifact.get('portfolio_source')}",
                 f"portfolio_file: {artifact.get('portfolio_file')}",
                 f"proposal_delta_tolerance: {artifact.get('proposal_delta_tolerance')}",
@@ -1023,6 +1038,7 @@ def main() -> None:
             result,
             strategy_profile=strategy_profile,
             portfolio_file=portfolio_file,
+            portfolio_name=args.portfolio_name,
         )
         paper_report_path = write_paper_run_report(context, paper_artifact)
         manifest["paper"] = paper_artifact
