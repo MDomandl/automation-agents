@@ -5935,7 +5935,293 @@ Möglicher nächster Projektabschnitt:
 
 `05 – Produktionsprofil & Runner-Vorbereitung`
 
+---
 
+## 05.00 – Produktionsprofil & Paper-Runner-Vorbereitung
+
+Ziel dieses Abschnitts ist die kontrollierte Überführung des vorläufigen Hauptprofils `balanced_v1` in einen Paper-Runner-Workflow.
+
+Umsetzung:
+
+* `balanced_v1` wird als Paper-Hauptkandidat geführt.
+* `conservative_v1` bleibt defensiver Kontrollanker.
+* `offensive_v1` bleibt Chancen-/Risiko-Gegenprobe.
+* Die Vorbereitung fokussiert auf Reporting, Prüfbarkeit und Sicherheitsgrenzen.
+
+Ergebnis:
+
+* Es gibt weiterhin keine Investitionsfreigabe.
+* Die Strategie-, Scoring-, Ranking-, Rebalance-, Finalisierungs- und Backtestlogik bleibt unverändert.
+* Die nächste Systemstufe ist ein Paper-Workflow mit expliziter Human-Review-Pflicht.
+
+Sicherheitsabgrenzung:
+
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stückzahl- oder Euro-Orderberechnung.
+* Keine automatische Anlageentscheidung.
+
+Relevante Artefakte:
+
+* `scripts.run_bt_run_agent`
+* `balanced_v1`
+* `conservative_v1`
+* `offensive_v1`
+
+---
+
+## 05.10 – Runner-Modus `analysis` / `paper`
+
+Ziel war die saubere Trennung zwischen rückwärtskompatibler Analyse-Nutzung und explizitem Paper-Run.
+
+Umsetzung:
+
+* `--runner-mode paper` wurde eingeführt.
+* `analysis` bleibt der rückwärtskompatible Default.
+* Paper-Läufe erzeugen einen Vorschlagsreport, aber keine Ausführung.
+
+Ergebnis:
+
+* Bestehende Analyse-Aufrufe bleiben unverändert nutzbar.
+* Paper-Runs sind explizit über den Runner-Modus erkennbar.
+* Reports weisen klar aus, ob ein Lauf im Analyse- oder Paper-Modus erzeugt wurde.
+
+Sicherheitsabgrenzung:
+
+* `paper` bedeutet technische Simulation und Vorschlagsreport.
+* `paper` bedeutet keine Orderanweisung und keine Ausführung.
+* Es wurde keine Broker-, Order- oder Live-Trading-Logik ergänzt.
+
+Relevante Artefakte:
+
+* `--runner-mode analysis`
+* `--runner-mode paper`
+* `paper_run_report.json`
+* `paper_run_report.txt`
+
+---
+
+## 05.20 – Paper-Run-Report fachlich stabilisiert
+
+Ziel war ein fachlich verständlicher Report, der technische Runner-Informationen von fachlichen Warnungen trennt und die Nicht-Ausführung eindeutig dokumentiert.
+
+Umsetzung:
+
+* `paper_run_report.json` und `paper_run_report.txt` werden erzeugt.
+* Reports enthalten klare No-Execution-/No-Broker-/No-Live-Trading-Hinweise.
+* Eine Human-Review-Sektion ist vorhanden.
+* Technische Runner-/Seeding-Informationen werden von fachlichen `warnings` getrennt.
+
+Ergebnis:
+
+* Der Paper-Report ist als Prüf- und Audit-Artefakt nutzbar.
+* Fachliche Warnungen bleiben von technischen Laufdetails getrennt.
+* Die manuelle Prüfung ist als Bestandteil des Workflows sichtbar.
+
+Sicherheitsabgrenzung:
+
+* `orders_executed` bleibt negativ.
+* `broker_connected` bleibt negativ.
+* `live_trading_enabled` bleibt negativ.
+* `human_review_required` bleibt positiv.
+
+Relevante Artefakte:
+
+* `paper_run_report.json`
+* `paper_run_report.txt`
+* Report-Felder `technical_info`, `warnings`, `human_review_required`
+
+---
+
+## 05.30 – Lokale Ist-Depot-/Positionsdatei
+
+Ziel war, Paper-Vorschläge gegen ein lokal gepflegtes Ist-Portfolio berechnen zu können.
+
+Umsetzung:
+
+* `--portfolio-file` wurde ergänzt.
+* Unterstütztes CSV-Format: `symbol,weight`.
+* Bei Nutzung einer Portfolio-Datei werden `previous_weight` und Deltas gegen diese lokale Datei berechnet.
+* `portfolio_source` und `portfolio_file` werden im Report ausgewiesen.
+
+Ergebnis:
+
+* Buy/Sell/Hold-Proposals beziehen sich nicht nur auf Zielgewichte, sondern auf lokale Ist-Gewichte.
+* Die Herkunft der Ist-Daten ist im Report nachvollziehbar.
+* Die lokale Datei bleibt eine manuell gepflegte Datenquelle, keine Broker-Schnittstelle.
+
+Sicherheitsabgrenzung:
+
+* Die CSV ist kein Live-Depotabruf.
+* Es findet keine Broker-Kommunikation statt.
+* Die Datei erzeugt keine Orders.
+
+Relevante Artefakte:
+
+* `--portfolio-file`
+* `examples/paper_portfolio_positions.csv`
+* Report-Felder `portfolio_source`, `portfolio_file`, `previous_weight`
+
+---
+
+## 05.40 – Beispiel-Portfolio-Datei und echter Paper-Run
+
+Ziel war ein nachvollziehbares Beispiel für einen Paper-Run mit lokaler Ist-Portfolio-Datei.
+
+Umsetzung:
+
+* Eine Beispiel-CSV liegt unter `examples/paper_portfolio_positions.csv`.
+* Der Paper-Run kann mit `--runner-mode paper` und `--portfolio-file` gestartet werden.
+* Die Zielpositionen werden gegen die lokalen Ist-Gewichte verglichen.
+
+Beispielaufruf:
+
+[CODE_START]
+.venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file examples/paper_portfolio_positions.csv
+[CODE_END]
+
+Ergebnis:
+
+* Der Runner erzeugt Paper-Reports mit Zielgewichten, Ist-Gewichten und Proposal-Deltas.
+* Buy/Sell/Hold dient als Vorschlagsklassifikation, nicht als Order.
+
+Sicherheitsabgrenzung:
+
+* Keine Stückzahlen.
+* Keine Euro-Beträge.
+* Keine Orderausführung.
+* Keine Anlageberatung.
+
+Relevante Artefakte:
+
+* `examples/paper_portfolio_positions.csv`
+* `paper_run_report.json`
+* `paper_run_report.txt`
+
+---
+
+## 05.50 – Proposal-Toleranz und Report-Klarheit
+
+Ziel war, minimale Rundungsdifferenzen nicht als künstliche Buy-/Sell-Signale auszuweisen.
+
+Umsetzung:
+
+* `PROPOSAL_DELTA_TOLERANCE = 0.00001` wurde eingeführt.
+* Kleine Rundungsdeltas werden als `Hold` klassifiziert.
+* `proposal_delta_tolerance` und `proposal_delta_basis` erscheinen in JSON und TXT.
+
+Ergebnis:
+
+* Proposal-Klassifikationen sind robuster gegen Rundungsrauschen.
+* Die Toleranz ist im Report explizit dokumentiert.
+* Die Delta-Basis ist fachlich nachvollziehbar.
+
+Sicherheitsabgrenzung:
+
+* Die Toleranz ändert keine Strategie-, Ranking- oder Rebalance-Logik.
+* Sie betrifft nur die Klassifikation der Paper-Proposals im Report.
+* Es wird weiterhin nichts ausgeführt.
+
+Relevante Artefakte:
+
+* `PROPOSAL_DELTA_TOLERANCE`
+* Report-Felder `proposal_delta_tolerance`, `proposal_delta_basis`
+
+---
+
+## 05.60 – Kontroll-Paper-Run nach Proposal-Toleranz
+
+Ziel war ein kontrollierter End-to-End-Lauf nach Einführung der Proposal-Toleranz.
+
+Kontrolllauf:
+
+* Run-ID: `20260618_203251`
+* Run-Label: `2026-06-18_20-32-51_short_paper`
+* `as_of`: `2025-10-08`
+* `portfolio_source`: `portfolio_file`
+* `proposal_delta_basis`: `local portfolio file`
+
+Ergebnis der Proposal-Klassifikation:
+
+* Buy: DASH, IVZ
+* Sell: APTV, HUM
+* Hold: CVS, EBAY, GE, NEM, PLTR, PSKY, WDC
+
+Ergebnis:
+
+* Rundungsdeltas wurden korrekt als `Hold` klassifiziert.
+* Der Paper-Report weist lokale Ist-Daten, Delta-Basis und Sicherheitsgrenzen aus.
+* `balanced_v1` bleibt Paper-Hauptkandidat; `conservative_v1` und `offensive_v1` bleiben Kontrollprofile.
+
+Tests/Checks:
+
+* Tests: `179 passed`
+* Ruff für geänderte Dateien: clean
+
+Sicherheitsabgrenzung:
+
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stückzahl- oder Euro-Orderberechnung.
+* Keine Investitionsfreigabe.
+
+05.70 – Paper-Workflow-Dokumentation
+
+Die detaillierte Bedien- und Sicherheitsdokumentation des Paper-Runners wurde in einer separaten Datei abgelegt:
+
+docs/paper_runner_workflow.md
+
+Sie beschreibt Zweck, Ablauf, Portfolio-CSV, Beispielaufruf, Reportfelder, Buy/Sell/Hold-Logik, Proposal-Toleranz und Sicherheitsgrenzen.
+
+## 05.90 – Phase-5-Zwischenabschluss
+
+Phase 5 ist als Zwischenstand fachlich und technisch dokumentiert. Erreicht wurden:
+
+* Paper-Runner-Modus über `--runner-mode paper`.
+* Paper-Reports als `paper_run_report.json` und `paper_run_report.txt`.
+* Human-Review-Sektion mit klarer manueller Prüfpflicht.
+* Unterstützung einer lokalen Ist-Portfolio-Datei über `--portfolio-file` im CSV-Format `symbol,weight`.
+* Optionaler `--portfolio-name` als reine Metadatenangabe für Report und Manifest.
+* Proposal-Toleranz `proposal_delta_tolerance = 0.00001` zur Hold-Klassifikation kleiner Rundungsdeltas.
+* Getrennte Ausgabe technischer Runner-/Seeding-Informationen und fachlicher Warnings.
+* Kontrolllauf `20260618_203251` mit `as_of` `2025-10-08`, `portfolio_source` `portfolio_file`, Delta-Basis `local portfolio file` sowie Buy: DASH, IVZ; Sell: APTV, HUM; Hold: CVS, EBAY, GE, NEM, PLTR, PSKY, WDC.
+
+Aktueller Nutzungszweck:
+
+* Technische Simulation eines Strategieprofil-Laufs.
+* Erzeugung eines Vorschlagsreports.
+* Manuelle Prüfung der Buy/Sell/Hold-Proposals.
+* Keine Ausführung und keine automatische Umsetzung.
+
+Sicherheitsgrenzen:
+
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stückzahl- oder Euro-Orderberechnung.
+* Keine Multi-Portfolio-Batch-Verarbeitung.
+* Keine Personen-/Mandantenverwaltung.
+* Keine Anlageberatung.
+* Keine Investitionsfreigabe.
+
+Bewusste Abgrenzung zu Phase 6:
+
+Phase 6 kann später Portfolio-Organisation, mehrere lokale Portfolio-Dateien, Namenskonventionen, eine optionale Portfolio-Registry und weitere Paper-Betriebsorganisation behandeln.
+
+Phase 5 wird nicht weiter in Richtung Multi-Portfolio-Architektur, Batch-Verarbeitung oder Personen-/Mandantenverwaltung ausgebaut.
+
+Weiterführende Dokumentation:
+
+* `docs/paper_runner_workflow.md`
+
+Abschlusschecks:
+
+* Letzter echter Kontrolllauf: `20260618_203251`.
+* `pytest`: `179 passed`.
+* Fokussierte Tests zuletzt: `42 passed`.
+* Ruff für geänderte Python-Dateien: clean.
 
 
 
