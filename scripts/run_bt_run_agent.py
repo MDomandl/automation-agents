@@ -763,6 +763,11 @@ def load_portfolio_positions_csv(path: Path) -> dict[str, float]:
                     )
 
                 raw_weight = str(row.get("weight", "")).strip()
+                if not raw_weight:
+                    raise PortfolioFileError(
+                        f"Invalid portfolio file {path}: empty weight for {symbol!r} "
+                        f"in line {line_number}"
+                    )
                 try:
                     weight = float(raw_weight)
                 except ValueError as exc:

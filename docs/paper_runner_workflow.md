@@ -36,6 +36,8 @@ GE,0.111111
 
 `symbol` enthält das Ticker-Symbol. `weight` enthält das lokale Ist-Gewicht als Dezimalzahl.
 
+Die CSV-Validierung verlangt die Spalten `symbol` und `weight`, nicht-leere Symbole, numerische und nicht-negative Gewichte sowie eindeutige Symbole nach Trimming und Uppercase-Normalisierung. Gewichte werden nicht normalisiert; die Summe muss nicht `1.0` ergeben. Details und Beispiele stehen in `portfolios/README.md`.
+
 ## Beispielaufruf
 
 [CODE_START]
@@ -48,6 +50,18 @@ einen technischen Namen fÃ¼r die Zuordnung ausweisen:
 [CODE_START]
 --portfolio-file portfolios/manfred_real.csv --portfolio-name manfred_real
 [CODE_END]
+
+## Lokale Portfolio-Organisation
+
+Lokale Ist-Portfolios koennen im Ordner `portfolios/` organisiert werden. Diese CSV-Dateien sind manuell gepflegte lokale Demo- oder Ist-Portfolios und keine Broker-Daten.
+
+Beispiel:
+
+[CODE_START]
+.venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file portfolios/example_local_portfolio.csv --portfolio-name example_local
+[CODE_END]
+
+`--portfolio-file` zeigt dabei immer auf eine einzelne CSV-Datei. `--portfolio-name` ist nur eine optionale Bezeichnung fuer Reports. Pro Paper-Run wird immer nur ein Portfolio verarbeitet; es gibt keine Multi-Portfolio-Batch-Verarbeitung.
 
 ## Bedeutung der Report-Felder
 

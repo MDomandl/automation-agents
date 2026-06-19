@@ -725,6 +725,47 @@ def test_load_portfolio_positions_csv_reads_normalized_weights(tmp_path: Path) -
     assert positions == {"AAPL": 0.12, "MSFT": 0.08}
 
 
+def test_load_portfolio_positions_csv_tolerates_weight_whitespace(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL, 0.12 \nMSFT,\t0.08\t\n", encoding="utf-8")
+
+    positions = load_portfolio_positions_csv(portfolio_path)
+
+    assert positions == {"AAPL": 0.12, "MSFT": 0.08}
+
+
+def test_load_portfolio_positions_csv_allows_weights_not_summing_to_one(
+    tmp_path: Path,
+) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL,0.30\nMSFT,0.20\n", encoding="utf-8")
+
+    positions = load_portfolio_positions_csv(portfolio_path)
+
+    assert positions == {"AAPL": 0.30, "MSFT": 0.20}
+    assert sum(positions.values()) == 0.50
+
+
+def test_load_portfolio_positions_csv_keeps_symbols_outside_target_portfolio(
+    tmp_path: Path,
+) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nUNKNOWN,0.10\nAAPL,0.20\n", encoding="utf-8")
+
+    positions = load_portfolio_positions_csv(portfolio_path)
+
+    assert positions == {"UNKNOWN": 0.10, "AAPL": 0.20}
+
+
+def test_load_portfolio_positions_csv_ignores_empty_lines(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\n\nAAPL,0.10\n\nMSFT,0.20\n", encoding="utf-8")
+
+    positions = load_portfolio_positions_csv(portfolio_path)
+
+    assert positions == {"AAPL": 0.10, "MSFT": 0.20}
+
+
 def test_load_portfolio_positions_csv_rejects_missing_file(tmp_path: Path) -> None:
     portfolio_path = tmp_path / "missing.csv"
 
@@ -737,6 +778,80 @@ def test_load_portfolio_positions_csv_rejects_missing_file(tmp_path: Path) -> No
 
     assert "Portfolio file not found" in message
     assert str(portfolio_path) in message
+
+
+def test_load_portfolio_positions_csv_rejects_missing_symbol_column(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("ticker,weight\nAAPL,0.10\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected missing symbol column to raise")
+
+    assert "missing required column" in message
+    assert "symbol" in message
+
+
+def test_load_portfolio_positions_csv_rejects_missing_weight_column(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,allocation\nAAPL,0.10\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected missing weight column to raise")
+
+    assert "missing required column" in message
+    assert "weight" in message
+
+
+def test_load_portfolio_positions_csv_rejects_empty_symbol(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\n ,0.10\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected empty symbol to raise")
+
+    assert "empty symbol" in message
+
+
+def test_load_portfolio_positions_csv_rejects_empty_weight(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL, \n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected empty weight to raise")
+
+    assert "empty weight" in message
+    assert "AAPL" in message
+
+
+def test_load_portfolio_positions_csv_rejects_non_numeric_weight(tmp_path: Path) -> None:
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL,not-a-number\n", encoding="utf-8")
+
+    try:
+        load_portfolio_positions_csv(portfolio_path)
+    except PortfolioFileError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected non-numeric weight to raise")
+
+    assert "invalid weight" in message
+    assert "AAPL" in message
 
 
 def test_load_portfolio_positions_csv_rejects_negative_weight(tmp_path: Path) -> None:
@@ -756,7 +871,7 @@ def test_load_portfolio_positions_csv_rejects_negative_weight(tmp_path: Path) ->
 
 def test_load_portfolio_positions_csv_rejects_duplicate_symbol(tmp_path: Path) -> None:
     portfolio_path = tmp_path / "positions.csv"
-    portfolio_path.write_text("symbol,weight\naapl,0.10\nAAPL,0.20\n", encoding="utf-8")
+    portfolio_path.write_text("symbol,weight\n aapl ,0.10\nAAPL,0.20\n", encoding="utf-8")
 
     try:
         load_portfolio_positions_csv(portfolio_path)

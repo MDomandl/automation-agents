@@ -6223,6 +6223,47 @@ Abschlusschecks:
 * Fokussierte Tests zuletzt: `42 passed`.
 * Ruff für geänderte Python-Dateien: clean.
 
+## 06.10 - Lokale Portfolio-Organisation
+
+Mit 06.10 startet Phase 6 - Portfolio-Organisation.
+
+Ziel ist eine einfache organisatorische Struktur fuer mehrere lokale Ist-Portfolios. Dafuer wird der Ordner `portfolios/` als Ablage fuer manuell gepflegte lokale Portfolio-CSV-Dateien eingefuehrt.
+
+Die Portfolio-Dateien nutzen weiterhin das CSV-Format `symbol,weight`. `weight` wird als Dezimalgewicht interpretiert. Die Dateien bleiben lokale Ist-Portfolio-Eingaben fuer einzelne Paper-Runs.
+
+Bewusste Abgrenzung:
+
+* Keine Multi-Portfolio-Batch-Verarbeitung.
+* Keine Broker-Anbindung.
+* Keine Orderlogik.
+* Keine Stueckzahl-Berechnung.
+* Keine Euro-Berechnung.
+* Keine Aenderung der bestehenden Paper-Runner-Logik.
+
+Die bestehende Paper-Runner-Logik bleibt unveraendert. `--portfolio-file` zeigt weiterhin auf eine einzelne CSV-Datei. `--portfolio-name` bleibt eine optionale Bezeichnung fuer Reports.
+
+## 06.20 - Portfolio-CSV-Validierung & Testabdeckung
+
+Die bestehende `--portfolio-file`-Validierung wurde fuer lokale Portfolio-CSV-Dateien abgesichert.
+
+Umsetzung:
+
+* Die Validierungsregeln fuer `symbol,weight` wurden klarer dokumentiert.
+* Tests fuer gueltige CSV-Dateien, Whitespace, Uppercase-Normalisierung, fehlende Spalten, leere Felder, ungueltige und negative Gewichte sowie doppelte Symbole wurden ergaenzt.
+* Gewichte bleiben Dezimalgewichte und werden nicht normalisiert.
+* Die Summe der Gewichte muss nicht `1.0` ergeben.
+* Symbole ausserhalb des spaeteren Zielportfolios bleiben erlaubt.
+
+Bewusste Abgrenzung:
+
+* Keine Batch-Verarbeitung.
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine Orderlogik.
+* Keine Stueckzahl-Berechnung.
+* Keine Euro-Berechnung.
+* Keine Aenderung von Strategieauswahl, Scoring, Ranking, Rebalancing, Proposal-Klassifikation, Backtest-Logik, Runner-Berechnung, Decision-Bundle-Erzeugung oder Paper-Report-Fachlogik.
+
 
 
 
