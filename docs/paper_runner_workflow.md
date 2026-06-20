@@ -9,8 +9,8 @@ Der Paper-Runner ist keine Anlageberatung, keine Orderanweisung und keine Ausfü
 ## Typischer Ablauf
 
 1. Ist-Portfolio als CSV-Datei pflegen.
-2. Paper-Run mit `--runner-mode paper` starten.
-3. Zielpositionen berechnen lassen.
+2. Paper-Run mit `--runner-mode paper`, `--portfolio-file` und optional `--portfolio-name` starten.
+3. Portfolio Reference und Portfolio Checks im Report pruefen.
 4. Buy/Sell/Hold-Proposals prüfen.
 5. Human Review durchführen.
 6. Keine automatische Ausführung vornehmen.
@@ -45,10 +45,10 @@ Die CSV-Validierung verlangt die Spalten `symbol` und `weight`, nicht-leere Symb
 [CODE_END]
 
 Wenn lokal mehrere Portfolio-Dateien gepflegt werden, kann der Paper-Report optional
-einen technischen Namen fÃ¼r die Zuordnung ausweisen:
+einen technischen Namen fuer die Zuordnung ausweisen:
 
 [CODE_START]
---portfolio-file portfolios/manfred_real.csv --portfolio-name manfred_real
+--portfolio-file portfolios/reference_local.csv --portfolio-name reference_local
 [CODE_END]
 
 ## Lokale Portfolio-Organisation
@@ -61,9 +61,9 @@ Beispiel:
 .venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file portfolios/example_local_portfolio.csv --portfolio-name example_local
 [CODE_END]
 
-`--portfolio-file` zeigt dabei immer auf eine einzelne CSV-Datei. `--portfolio-name` ist nur eine optionale Bezeichnung fuer Reports. Pro Paper-Run wird immer nur ein Portfolio verarbeitet; es gibt keine Multi-Portfolio-Batch-Verarbeitung.
+`--portfolio-file` zeigt dabei immer auf eine einzelne CSV-Datei. `--portfolio-name` ist nur eine optionale Bezeichnung fuer Reports und Manifest; der Wert ist reine Metadaten und veraendert keine Berechnung. Pro Paper-Run wird immer nur ein Portfolio verarbeitet; es gibt keine Multi-Portfolio-Batch-Verarbeitung.
 
-Paper-Reports weisen die verwendete Portfolio-Referenz auditierbar aus. Dadurch bleibt auch spaeter nachvollziehbar, ob die Vergleichsbasis aus einer lokalen CSV-Datei oder aus dem Runner-Previous-State kam.
+Paper-Reports weisen die verwendete Portfolio Reference auditierbar aus. Dadurch bleibt auch spaeter nachvollziehbar, ob die Vergleichsbasis aus einer lokalen CSV-Datei oder aus dem Runner-Previous-State kam.
 
 ## Portfolio Checks im Paper-Report
 

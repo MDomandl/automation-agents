@@ -81,6 +81,26 @@ AAPL,0.20
 
 Der Paper-Report dokumentiert den verwendeten Portfolio-Pfad beziehungsweise Dateinamen. So bleibt spaeter nachvollziehbar, welche lokale CSV-Datei als Ist-Portfolio fuer den Run verwendet wurde.
 
+## Praxis mit mehreren lokalen Dateien
+
+Mehrere lokale CSV-Dateien koennen parallel im Ordner liegen, zum Beispiel:
+
+```text
+portfolios/example_local_portfolio.csv
+portfolios/watchlist_style_portfolio.csv
+portfolios/balanced_reference_portfolio.csv
+```
+
+Gestartet wird weiterhin jeweils ein einzelner Paper-Run mit genau einer Datei:
+
+```powershell
+--portfolio-file portfolios/example_local_portfolio.csv --portfolio-name example_local
+```
+
+Es gibt keine Batch-Verarbeitung und keine Personen- oder Mandantenverwaltung. Die Dateinamen dienen nur der lokalen Organisation.
+
+CSV-Gewichte bleiben manuell gepflegte Ist-Gewichte. Sie werden nicht normalisiert und muessen im Human Review bewusst geprueft werden.
+
 ## Portfolio Checks im Paper-Report
 
 Paper-Reports zeigen fuer lokale Portfolio-Dateien eine kurze Plausibilitaetsuebersicht. Dazu gehoeren die Anzahl der gelesenen Positionen, die Gewichtssumme, die Abweichung der Gewichtssumme von `1.0` und eine kurze Symbolvorschau.

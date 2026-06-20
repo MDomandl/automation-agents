@@ -6312,51 +6312,31 @@ Bewusste Abgrenzung:
 * Keine Stueckzahl-Berechnung.
 * Keine Euro-Berechnung.
 
+## 06.50 - Phase-6-Zwischenreview & Workflow-Konsolidierung
 
+Phase 6 ist bis hierhin als organisatorische und dokumentarische Erweiterung des Paper-Workflows konsolidiert.
 
+Zusammenfassung der bisherigen Phase-6-Schritte:
 
+* 06.10: Der Ordner `portfolios/` dient als lokale Ablage fuer manuell gepflegte Ist-Portfolio-CSV-Dateien.
+* 06.20: Die CSV-Validierung fuer `symbol,weight` wurde abgesichert und dokumentiert.
+* 06.30: Paper-Reports weisen die verwendete Portfolio-Referenz auditierbar aus.
+* 06.40: Paper-Reports enthalten Portfolio Checks zur manuellen Plausibilitaetspruefung der lokalen CSV-Datei.
 
+Einordnung:
 
+* Phase 6 verbessert Organisation, Nachvollziehbarkeit und manuelle Pruefung lokaler Ist-Portfolios.
+* `--portfolio-file` verweist weiterhin auf genau eine lokale CSV-Datei pro Paper-Run.
+* `--portfolio-name` bleibt reine Metadatenangabe fuer Report und Manifest.
+* Human Review bleibt verpflichtend; die Portfolio Checks sind nur ein Pruefhinweis.
+* Bestehende Proposal-, Runner-, Backtest- und Decision-Bundle-Logik bleibt unveraendert.
 
+Bewusste Abgrenzung:
 
-
-
-
-
-
-
-
-
-
-
-## Erste Auswertung: sp500 vs sp500_top100
-
-Verglichen wurden die Runs:
-
-- A: 20260505_230805, Universe `sp500`, 503 Werte
-- B: 20260505_205318, Universe `sp500_top100`, 100 Werte
-
-Der Vergleich zeigt in diesem Zeitraum eine klare Tendenz zugunsten der Top100-Variante.
-
-Während die Rendite nur geringfügig besser ist, verbessert sich das Risikoprofil deutlich:
-
-- Total Return: 20,34 % vs. 20,66 %
-- CAGR: 13,72 % vs. 13,93 %
-- Max Drawdown: -24,45 % vs. -16,04 %
-- Volatilität: 25,30 % vs. 17,70 %
-- Sharpe Ratio: 0,64 vs. 0,83
-- Turnover: 48,83 % vs. 34,21 %
-- Trades Count: 20 vs. 6
-
-Damit erreicht `sp500_top100` in diesem Vergleich eine leicht höhere Rendite bei deutlich geringerem Risiko und weniger Handelsaktivität.
-
-Auffällig ist allerdings, dass sich die finalen Portfolios stark unterscheiden. Nur 2 von 9 Titeln überschneiden sich. Das zeigt, dass die Universe-Auswahl einen erheblichen Einfluss auf die Strategieentscheidungen hat.
-
-Vorläufige Bewertung:
-
-- `sp500`: beobachten, eher offensiver/volatiler
-- `sp500_top100`: geeigneter Kandidat für weitere Prüfung, Profilnähe ausgewogen bis konservativ
-
-Einschränkung:
-
-Dieser Vergleich reicht noch nicht als endgültige Entscheidung. Die Top100-Variante sollte über weitere Zeiträume und gegen vollständige Benchmark-Kennzahlen geprüft werden.
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stueckzahl- oder Euro-Berechnung.
+* Keine Gewichtungsnormalisierung.
+* Keine Multi-Portfolio-Batch-Verarbeitung.
+* Keine Personen- oder Mandantenverwaltung.
