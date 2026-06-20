@@ -694,6 +694,7 @@ def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: P
     assert artifact["portfolio_file_name"] is None
     assert artifact["portfolio_file_display"] is None
     assert artifact["portfolio_file_resolved"] is None
+    assert artifact["portfolio_checks"] is None
     assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert artifact["proposal_delta_basis"] == "runner previous-state"
     assert artifact["as_of"] == "2025-10-08"
@@ -945,6 +946,15 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
     assert artifact["portfolio_file_name"] == "positions.csv"
     assert artifact["portfolio_file_display"] == "positions.csv"
     assert artifact["portfolio_file_resolved"] == str(portfolio_path.resolve())
+    assert artifact["portfolio_checks"] == {
+        "position_count": 2,
+        "total_weight": 0.30000000000000004,
+        "total_weight_delta_to_1": -0.7,
+        "has_positions": True,
+        "weight_sum_is_near_1": False,
+        "weight_sum_tolerance": 0.01,
+        "symbols_preview": ["AAPL", "MSFT"],
+    }
     assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert artifact["proposal_delta_basis"] == "local portfolio file"
     assert "[WARN] example" in artifact["warnings"]
@@ -974,6 +984,76 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
     assert artifact["execution"]["orders_executed"] is False
     assert artifact["execution"]["broker_connected"] is False
     assert artifact["execution"]["live_trading_enabled"] is False
+
+
+def test_build_paper_run_artifact_marks_portfolio_weight_sum_near_one(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    (decisions_dir / "RUN_latest_2025-10-08.json").write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "new_weights": {"AAPL": 0.50, "MSFT": 0.50},
+            }
+        ),
+        encoding="utf-8",
+    )
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL,0.50\nMSFT,0.495\n", encoding="utf-8")
+    context = _paper_artifact_context(tmp_path, decisions_dir)
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    artifact = build_paper_run_artifact(context, result, portfolio_file=portfolio_path)
+
+    checks = artifact["portfolio_checks"]
+    assert checks["position_count"] == 2
+    assert abs(checks["total_weight"] - 0.995) < 0.000000001
+    assert abs(checks["total_weight_delta_to_1"] - -0.005) < 0.000000001
+    assert checks["weight_sum_is_near_1"] is True
+
+
+def test_build_paper_run_artifact_keeps_proposals_when_weight_sum_not_near_one(
+    tmp_path: Path,
+) -> None:
+    decisions_dir = tmp_path / "decisions"
+    decisions_dir.mkdir()
+    (decisions_dir / "RUN_latest_2025-10-08.json").write_text(
+        json.dumps(
+            {
+                "kind": "RUN",
+                "as_of": "2025-10-08",
+                "new_weights": {"AAPL": 0.40, "MSFT": 0.20},
+            }
+        ),
+        encoding="utf-8",
+    )
+    portfolio_path = tmp_path / "positions.csv"
+    portfolio_path.write_text("symbol,weight\nAAPL,0.10\nMSFT,0.05\n", encoding="utf-8")
+    context = _paper_artifact_context(tmp_path, decisions_dir)
+    result = RunResult(
+        success=True,
+        backtest=StepResult(True),
+        runner=StepResult(True),
+        compare=CompareResult(success=True, matched=True, message="ok"),
+    )
+
+    artifact = build_paper_run_artifact(context, result, portfolio_file=portfolio_path)
+
+    checks = artifact["portfolio_checks"]
+    assert checks["weight_sum_is_near_1"] is False
+    assert abs(checks["total_weight"] - 0.15) < 0.000000001
+    assert [item["ticker"] for item in artifact["buy_proposals"]] == ["AAPL", "MSFT"]
+    deltas = {item["ticker"]: item["delta_weight"] for item in artifact["buy_proposals"]}
+    assert abs(deltas["AAPL"] - 0.30) < 0.000000001
+    assert abs(deltas["MSFT"] - 0.15) < 0.000000001
 
 
 def test_build_paper_run_artifact_classifies_proposals_with_tolerance(
@@ -1082,6 +1162,7 @@ def test_build_paper_run_artifact_keeps_runner_previous_state_with_tolerance(
     assert artifact["portfolio_file_name"] is None
     assert artifact["portfolio_file_display"] is None
     assert artifact["portfolio_file_resolved"] is None
+    assert artifact["portfolio_checks"] is None
     assert artifact["buy_proposals"] == []
     assert artifact["sell_proposals"] == []
     assert [item["ticker"] for item in artifact["hold_proposals"]] == ["TINY"]
@@ -1127,6 +1208,15 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
         "portfolio_file_name": "positions.csv",
         "portfolio_file_display": "positions.csv",
         "portfolio_file_resolved": str((tmp_path / "positions.csv").resolve()),
+        "portfolio_checks": {
+            "position_count": 3,
+            "total_weight": 0.12,
+            "total_weight_delta_to_1": -0.88,
+            "has_positions": True,
+            "weight_sum_is_near_1": False,
+            "weight_sum_tolerance": 0.01,
+            "symbols_preview": ["DASH", "IVZ", "CVS"],
+        },
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": "local portfolio file",
         "cash_weight": 0.1,
@@ -1164,6 +1254,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
                 "order costs and spreads",
                 "tax effects",
                 "personal risk capacity",
+                "portfolio file and total weight",
+                "weight sum deviations from 1.0 without automatic blocking",
             ],
         },
         "warnings": [
@@ -1190,6 +1282,11 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert decoded["portfolio_file_name"] == "positions.csv"
     assert decoded["portfolio_file_display"] == "positions.csv"
     assert decoded["portfolio_file_resolved"] == str((tmp_path / "positions.csv").resolve())
+    assert decoded["portfolio_checks"]["position_count"] == 3
+    assert decoded["portfolio_checks"]["total_weight"] == 0.12
+    assert decoded["portfolio_checks"]["total_weight_delta_to_1"] == -0.88
+    assert decoded["portfolio_checks"]["weight_sum_is_near_1"] is False
+    assert decoded["portfolio_checks"]["symbols_preview"] == ["DASH", "IVZ", "CVS"]
     assert decoded["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert decoded["proposal_delta_basis"] == "local portfolio file"
     assert decoded["target_positions"] == {"AAPL": 0.9, "CASH": 0.1}
@@ -1210,6 +1307,13 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "Portfolio Reference" in text
     assert "portfolio_file: positions.csv" in text
     assert "portfolio_file_name: positions.csv" in text
+    assert "Portfolio Checks" in text
+    assert "- Position count: 3" in text
+    assert "- Total weight: 0.12" in text
+    assert "- Delta to 1.0: -0.88" in text
+    assert "- Weight sum near 1.0: no" in text
+    assert "- Weight sum tolerance: 0.01" in text
+    assert "- Symbols preview: DASH, IVZ, CVS" in text
     assert f"proposal_delta_tolerance: {PROPOSAL_DELTA_TOLERANCE}" in text
     assert "proposal_delta_basis: local portfolio file" in text
     assert (
@@ -1228,6 +1332,8 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "Human Review Required" in text
     assert "- Check current market data." in text
     assert "- Check actual portfolio positions." in text
+    assert "- Check portfolio file and total weight." in text
+    assert "- Check weight sum deviations from 1.0 without automatic blocking." in text
     assert "NO REAL ORDER WAS EXECUTED." in text
 
 
@@ -1262,6 +1368,7 @@ def test_write_paper_run_report_omits_text_portfolio_name_when_unset(tmp_path: P
         "portfolio_file_name": None,
         "portfolio_file_display": None,
         "portfolio_file_resolved": None,
+        "portfolio_checks": None,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": "runner previous-state",
         "cash_weight": 0.0,
@@ -1289,10 +1396,15 @@ def test_write_paper_run_report_omits_text_portfolio_name_when_unset(tmp_path: P
     assert decoded["portfolio_file_name"] is None
     assert decoded["portfolio_file_display"] is None
     assert decoded["portfolio_file_resolved"] is None
+    assert decoded["portfolio_checks"] is None
     assert "Portfolio Reference" in text
     assert "portfolio_source: runner_previous_state" in text
     assert "portfolio_file:" not in text
     assert "portfolio_file_name:" not in text
+    assert "Portfolio Checks" not in text
+    assert "Position count:" not in text
+    assert "Total weight:" not in text
+    assert "Weight sum near 1.0:" not in text
     assert decoded["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert decoded["proposal_delta_basis"] == "runner previous-state"
     assert "No real orders were executed." in text
@@ -1311,6 +1423,15 @@ def test_write_paper_run_report_with_portfolio_file_without_name(tmp_path: Path)
             "portfolio_file_name": "positions.csv",
             "portfolio_file_display": "positions.csv",
             "portfolio_file_resolved": str((tmp_path / "positions.csv").resolve()),
+            "portfolio_checks": {
+                "position_count": 1,
+                "total_weight": 1.0,
+                "total_weight_delta_to_1": 0.0,
+                "has_positions": True,
+                "weight_sum_is_near_1": True,
+                "weight_sum_tolerance": 0.01,
+                "symbols_preview": ["AAPL"],
+            },
             "proposal_delta_basis": "local portfolio file",
         }
     )
@@ -1329,6 +1450,8 @@ def test_write_paper_run_report_with_portfolio_file_without_name(tmp_path: Path)
     assert "portfolio_source: portfolio_file" in text
     assert "portfolio_file: positions.csv" in text
     assert "portfolio_file_name: positions.csv" in text
+    assert "Portfolio Checks" in text
+    assert "- Weight sum near 1.0: yes" in text
     assert manifest["paper"]["portfolio_file_display"] == "positions.csv"
 
 
@@ -1346,10 +1469,12 @@ def test_write_paper_run_report_with_name_without_portfolio_file(tmp_path: Path)
     assert decoded["portfolio_file"] is None
     assert decoded["portfolio_file_name"] is None
     assert decoded["portfolio_file_display"] is None
+    assert decoded["portfolio_checks"] is None
     assert "portfolio_name: manual_previous_state" in text
     assert "portfolio_source: runner_previous_state" in text
     assert "portfolio_file:" not in text
     assert "portfolio_file_name:" not in text
+    assert "Portfolio Checks" not in text
 
 
 def _paper_report_context(tmp_path: Path) -> RunContext:
@@ -1371,6 +1496,23 @@ def _paper_report_context(tmp_path: Path) -> RunContext:
     return context
 
 
+def _paper_artifact_context(tmp_path: Path, decisions_dir: Path) -> RunContext:
+    return RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=decisions_dir,
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+
+
 def _minimal_paper_artifact(context: RunContext) -> dict[str, object]:
     return {
         "run_id": context.run_id,
@@ -1387,6 +1529,7 @@ def _minimal_paper_artifact(context: RunContext) -> dict[str, object]:
         "portfolio_file_name": None,
         "portfolio_file_display": None,
         "portfolio_file_resolved": None,
+        "portfolio_checks": None,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": "runner previous-state",
         "cash_weight": 0.0,

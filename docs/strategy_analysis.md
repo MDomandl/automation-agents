@@ -6291,6 +6291,27 @@ Bewusste Abgrenzung:
 * Keine Stueckzahl-Berechnung.
 * Keine Euro-Berechnung.
 
+## 06.40 - Portfolio-Plausibilitaetscheck im Paper-Report
+
+Paper-Reports enthalten jetzt Portfolio Checks, wenn ein lokales Ist-Portfolio ueber `--portfolio-file` verwendet wird.
+
+Ziel ist eine bessere manuelle Pruefung der Ist-Basis vor der Bewertung der Buy/Sell/Hold-Proposals. Der Report zeigt dafuer Anzahl der gelesenen Positionen, Gewichtssumme, Abweichung zu `1.0`, eine einfache Nahe-1.0-Plausibilitaet und eine kurze Symbolvorschau.
+
+Die Gewichtssumme wird nur angezeigt. Sie wird nicht normalisiert und loest keinen automatischen Abbruch aus, wenn sie deutlich von `1.0` abweicht.
+
+Bewusste Abgrenzung:
+
+* Keine Proposal-Aenderung.
+* Keine Aenderung der Proposal-Toleranz.
+* Keine Aenderung von Deltas oder Portfolio-Gewichten.
+* Keine Gewichtungsnormalisierung.
+* Keine Batch-Verarbeitung.
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine Orderlogik.
+* Keine Stueckzahl-Berechnung.
+* Keine Euro-Berechnung.
+
 
 
 

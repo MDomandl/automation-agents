@@ -32,6 +32,8 @@ OUTPUT_PATH_RE = re.compile(
     re.MULTILINE,
 )
 PROPOSAL_DELTA_TOLERANCE = 0.00001
+PORTFOLIO_WEIGHT_SUM_TOLERANCE = 0.01
+PORTFOLIO_SYMBOLS_PREVIEW_LIMIT = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,6 +478,7 @@ def build_paper_run_artifact(
     target_positions = _extract_weights(latest_bundle["payload"]) if latest_bundle else {}
     if portfolio_file is not None:
         previous_positions = load_portfolio_positions_csv(portfolio_file)
+        portfolio_checks = _build_portfolio_checks(previous_positions)
         portfolio_source = "portfolio_file"
         portfolio_file_path = str(portfolio_file)
         portfolio_file_name = portfolio_file.name
@@ -490,6 +493,7 @@ def build_paper_run_artifact(
         portfolio_file_name = None
         portfolio_file_display = None
         portfolio_file_resolved = None
+        portfolio_checks = None
     proposals = _build_weight_change_proposals(previous_positions, target_positions)
     proposal_delta_basis = (
         "local portfolio file"
@@ -504,6 +508,21 @@ def build_paper_run_artifact(
         for warning in result.warnings
         if not warning.strip().startswith("[INFO]")
     ]
+    human_review_checklist = [
+        "current market data",
+        "actual portfolio positions",
+        "available liquidity",
+        "order costs and spreads",
+        "tax effects",
+        "personal risk capacity",
+    ]
+    if portfolio_checks is not None:
+        human_review_checklist.extend(
+            [
+                "portfolio file and total weight",
+                "weight sum deviations from 1.0 without automatic blocking",
+            ]
+        )
 
     return {
         "run_id": context.run_id,
@@ -530,6 +549,7 @@ def build_paper_run_artifact(
         "portfolio_file_name": portfolio_file_name,
         "portfolio_file_display": portfolio_file_display,
         "portfolio_file_resolved": portfolio_file_resolved,
+        "portfolio_checks": portfolio_checks,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": proposal_delta_basis,
         "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
@@ -541,14 +561,7 @@ def build_paper_run_artifact(
         "human_review_required": {
             "required": True,
             "reason": "Paper mode creates proposals only. Manual review and approval are required.",
-            "checklist": [
-                "current market data",
-                "actual portfolio positions",
-                "available liquidity",
-                "order costs and spreads",
-                "tax effects",
-                "personal risk capacity",
-            ],
+            "checklist": human_review_checklist,
         },
         "warnings": [
             "No real order was executed.",
@@ -594,6 +607,27 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
         if artifact.get("portfolio_file")
         else []
     )
+    portfolio_checks = artifact.get("portfolio_checks")
+    portfolio_check_lines: list[str] = []
+    if isinstance(portfolio_checks, dict):
+        symbols_preview = portfolio_checks.get("symbols_preview", [])
+        symbols_display = (
+            ", ".join(str(symbol) for symbol in symbols_preview)
+            if isinstance(symbols_preview, list) and symbols_preview
+            else "None"
+        )
+        near_1 = "yes" if portfolio_checks.get("weight_sum_is_near_1") else "no"
+        portfolio_check_lines = [
+            "",
+            "Portfolio Checks",
+            f"- Position count: {portfolio_checks.get('position_count')}",
+            f"- Total weight: {portfolio_checks.get('total_weight')}",
+            f"- Delta to 1.0: {portfolio_checks.get('total_weight_delta_to_1')}",
+            f"- Has positions: {'yes' if portfolio_checks.get('has_positions') else 'no'}",
+            f"- Weight sum near 1.0: {near_1}",
+            f"- Weight sum tolerance: {portfolio_checks.get('weight_sum_tolerance')}",
+            f"- Symbols preview: {symbols_display}",
+        ]
     txt_path.write_text(
         "\n".join(
             [
@@ -622,6 +656,7 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 *portfolio_name_lines,
                 f"portfolio_source: {artifact.get('portfolio_source')}",
                 *portfolio_file_lines,
+                *portfolio_check_lines,
                 "",
                 f"proposal_delta_tolerance: {artifact.get('proposal_delta_tolerance')}",
                 f"proposal_delta_basis: {artifact.get('proposal_delta_basis')}",
@@ -665,6 +700,22 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
         encoding="utf-8",
     )
     return json_path
+
+
+def _build_portfolio_checks(positions: dict[str, float]) -> dict[str, object]:
+    total_weight = sum(positions.values())
+    total_weight_delta_to_1 = total_weight - 1.0
+    return {
+        "position_count": len(positions),
+        "total_weight": total_weight,
+        "total_weight_delta_to_1": total_weight_delta_to_1,
+        "has_positions": bool(positions),
+        "weight_sum_is_near_1": (
+            abs(total_weight_delta_to_1) <= PORTFOLIO_WEIGHT_SUM_TOLERANCE
+        ),
+        "weight_sum_tolerance": PORTFOLIO_WEIGHT_SUM_TOLERANCE,
+        "symbols_preview": list(positions)[:PORTFOLIO_SYMBOLS_PREVIEW_LIMIT],
+    }
 
 
 def _portfolio_file_display(context: RunContext, portfolio_file: Path) -> str:

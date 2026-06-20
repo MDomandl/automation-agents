@@ -65,6 +65,20 @@ Beispiel:
 
 Paper-Reports weisen die verwendete Portfolio-Referenz auditierbar aus. Dadurch bleibt auch spaeter nachvollziehbar, ob die Vergleichsbasis aus einer lokalen CSV-Datei oder aus dem Runner-Previous-State kam.
 
+## Portfolio Checks im Paper-Report
+
+Wenn `--portfolio-file` gesetzt ist, enthaelt der Paper-Report eine kleine Plausibilitaetsuebersicht zur lokalen CSV-Datei:
+
+* `position_count`: Anzahl gelesener Positionen aus der CSV-Datei.
+* `total_weight`: Summe der angegebenen Dezimalgewichte.
+* `total_weight_delta_to_1`: Abweichung der Gewichtssumme von `1.0`.
+* `weight_sum_is_near_1`: zeigt, ob die Gewichtssumme innerhalb der reinen Plausibilitaets-Toleranz liegt.
+* `symbols_preview`: erste Symbole aus der CSV-Datei zur schnellen Orientierung.
+
+Diese Werte dienen nur der Auditierbarkeit und Human Review. Sie normalisieren keine Gewichte, veraendern keine Proposal-Deltas und loesen keinen automatischen Abbruch aus, wenn die Summe nicht `1.0` ergibt.
+
+Die Portfolio Checks sind keine Orderfreigabe, keine Investmentfreigabe und keine Broker- oder Live-Trading-Logik.
+
 ## Bedeutung der Report-Felder
 
 * `runner_mode`: Runner-Modus des Laufs, im Paper-Workflow `paper`.
@@ -76,6 +90,7 @@ Paper-Reports weisen die verwendete Portfolio-Referenz auditierbar aus. Dadurch 
 * `portfolio_file_display`: gut lesbare Anzeigeform fuer Reports, wenn moeglich relativ zur Projektwurzel.
 * `portfolio_file_resolved`: absolut aufgeloester Pfad, wenn technisch stabil verfuegbar.
 * `proposal_delta_tolerance`: Toleranz für die Buy/Sell/Hold-Klassifikation.
+* `portfolio_checks`: reine Plausibilitaetsuebersicht zur CSV-Datei, nur wenn `--portfolio-file` gesetzt wurde.
 * `proposal_delta_basis`: fachliche Basis der Delta-Berechnung, z. B. `local portfolio file`.
 * `orders_executed`: zeigt an, ob Orders ausgeführt wurden; im Paper-Workflow `false`.
 * `broker_connected`: zeigt an, ob eine Broker-Verbindung bestand; im Paper-Workflow `false`.

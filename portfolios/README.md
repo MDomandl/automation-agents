@@ -81,6 +81,14 @@ AAPL,0.20
 
 Der Paper-Report dokumentiert den verwendeten Portfolio-Pfad beziehungsweise Dateinamen. So bleibt spaeter nachvollziehbar, welche lokale CSV-Datei als Ist-Portfolio fuer den Run verwendet wurde.
 
+## Portfolio Checks im Paper-Report
+
+Paper-Reports zeigen fuer lokale Portfolio-Dateien eine kurze Plausibilitaetsuebersicht. Dazu gehoeren die Anzahl der gelesenen Positionen, die Gewichtssumme, die Abweichung der Gewichtssumme von `1.0` und eine kurze Symbolvorschau.
+
+Die Gewichte werden weiterhin manuell gepflegt und muessen manuell geprueft werden. Eine Summe ungleich `1.0` bleibt erlaubt und fuehrt nicht automatisch zu einem Abbruch. Sie soll im Human Review bewusst bewertet werden.
+
+Die Report-Werte normalisieren keine Gewichte und sind keine Order-, Broker-, Live-Trading- oder Investmentfreigabe.
+
 Es erfolgt keine Multi-Portfolio-Batch-Verarbeitung. Pro Paper-Run wird immer nur die ueber `--portfolio-file` angegebene einzelne CSV-Datei verarbeitet.
 
 Es gibt keine Batch-Verarbeitung, keine Broker- oder Live-Trading-Anbindung, keine Orderlogik und keine Stueckzahl- oder Euro-Berechnung.
