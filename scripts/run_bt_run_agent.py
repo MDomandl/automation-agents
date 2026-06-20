@@ -478,12 +478,18 @@ def build_paper_run_artifact(
         previous_positions = load_portfolio_positions_csv(portfolio_file)
         portfolio_source = "portfolio_file"
         portfolio_file_path = str(portfolio_file)
+        portfolio_file_name = portfolio_file.name
+        portfolio_file_display = _portfolio_file_display(context, portfolio_file)
+        portfolio_file_resolved = str(portfolio_file.resolve(strict=False))
     else:
         previous_positions = (
             _extract_previous_weights(latest_bundle["payload"]) if latest_bundle else {}
         )
         portfolio_source = "runner_previous_state"
         portfolio_file_path = None
+        portfolio_file_name = None
+        portfolio_file_display = None
+        portfolio_file_resolved = None
     proposals = _build_weight_change_proposals(previous_positions, target_positions)
     proposal_delta_basis = (
         "local portfolio file"
@@ -521,6 +527,9 @@ def build_paper_run_artifact(
         "portfolio_name": portfolio_name,
         "portfolio_source": portfolio_source,
         "portfolio_file": portfolio_file_path,
+        "portfolio_file_name": portfolio_file_name,
+        "portfolio_file_display": portfolio_file_display,
+        "portfolio_file_resolved": portfolio_file_resolved,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": proposal_delta_basis,
         "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
@@ -576,6 +585,15 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
         if artifact.get("portfolio_name")
         else []
     )
+    portfolio_file_lines = (
+        [
+            "portfolio_file: "
+            f"{artifact.get('portfolio_file_display') or artifact.get('portfolio_file')}",
+            f"portfolio_file_name: {artifact.get('portfolio_file_name')}",
+        ]
+        if artifact.get("portfolio_file")
+        else []
+    )
     txt_path.write_text(
         "\n".join(
             [
@@ -599,9 +617,12 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 "broker_connected: false",
                 "live_trading_enabled: false",
                 f"decision_bundle: {artifact['decision_bundle']}",
+                "",
+                "Portfolio Reference",
                 *portfolio_name_lines,
                 f"portfolio_source: {artifact.get('portfolio_source')}",
-                f"portfolio_file: {artifact.get('portfolio_file')}",
+                *portfolio_file_lines,
+                "",
                 f"proposal_delta_tolerance: {artifact.get('proposal_delta_tolerance')}",
                 f"proposal_delta_basis: {artifact.get('proposal_delta_basis')}",
                 (
@@ -644,6 +665,19 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
         encoding="utf-8",
     )
     return json_path
+
+
+def _portfolio_file_display(context: RunContext, portfolio_file: Path) -> str:
+    if not portfolio_file.is_absolute():
+        return str(portfolio_file)
+
+    resolved_file = portfolio_file.resolve(strict=False)
+    for root in (context.ai_agents_dir, Path.cwd()):
+        try:
+            return str(resolved_file.relative_to(root.resolve()))
+        except ValueError:
+            continue
+    return str(portfolio_file)
 
 
 def _format_position_lines(value: object) -> str:

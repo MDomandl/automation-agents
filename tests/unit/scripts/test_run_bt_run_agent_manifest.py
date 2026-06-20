@@ -691,6 +691,9 @@ def test_build_paper_run_artifact_uses_latest_runner_decision_bundle(tmp_path: P
     assert artifact["portfolio_name"] is None
     assert artifact["portfolio_source"] == "runner_previous_state"
     assert artifact["portfolio_file"] is None
+    assert artifact["portfolio_file_name"] is None
+    assert artifact["portfolio_file_display"] is None
+    assert artifact["portfolio_file_resolved"] is None
     assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert artifact["proposal_delta_basis"] == "runner previous-state"
     assert artifact["as_of"] == "2025-10-08"
@@ -939,6 +942,9 @@ def test_build_paper_run_artifact_uses_portfolio_file_for_previous_weights(
     assert artifact["portfolio_name"] == "example_previous_state"
     assert artifact["portfolio_source"] == "portfolio_file"
     assert artifact["portfolio_file"] == str(portfolio_path)
+    assert artifact["portfolio_file_name"] == "positions.csv"
+    assert artifact["portfolio_file_display"] == "positions.csv"
+    assert artifact["portfolio_file_resolved"] == str(portfolio_path.resolve())
     assert artifact["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert artifact["proposal_delta_basis"] == "local portfolio file"
     assert "[WARN] example" in artifact["warnings"]
@@ -1072,6 +1078,10 @@ def test_build_paper_run_artifact_keeps_runner_previous_state_with_tolerance(
 
     assert artifact["portfolio_source"] == "runner_previous_state"
     assert artifact["portfolio_name"] is None
+    assert artifact["portfolio_file"] is None
+    assert artifact["portfolio_file_name"] is None
+    assert artifact["portfolio_file_display"] is None
+    assert artifact["portfolio_file_resolved"] is None
     assert artifact["buy_proposals"] == []
     assert artifact["sell_proposals"] == []
     assert [item["ticker"] for item in artifact["hold_proposals"]] == ["TINY"]
@@ -1114,6 +1124,9 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
         "portfolio_name": "example_previous_state",
         "portfolio_source": "portfolio_file",
         "portfolio_file": str(tmp_path / "positions.csv"),
+        "portfolio_file_name": "positions.csv",
+        "portfolio_file_display": "positions.csv",
+        "portfolio_file_resolved": str((tmp_path / "positions.csv").resolve()),
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": "local portfolio file",
         "cash_weight": 0.1,
@@ -1174,6 +1187,9 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert decoded["portfolio_name"] == "example_previous_state"
     assert decoded["portfolio_source"] == "portfolio_file"
     assert decoded["portfolio_file"] == str(tmp_path / "positions.csv")
+    assert decoded["portfolio_file_name"] == "positions.csv"
+    assert decoded["portfolio_file_display"] == "positions.csv"
+    assert decoded["portfolio_file_resolved"] == str((tmp_path / "positions.csv").resolve())
     assert decoded["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert decoded["proposal_delta_basis"] == "local portfolio file"
     assert decoded["target_positions"] == {"AAPL": 0.9, "CASH": 0.1}
@@ -1191,7 +1207,9 @@ def test_write_paper_run_report_writes_json_and_text(tmp_path: Path) -> None:
     assert "live_trading_enabled: false" in text
     assert "portfolio_name: example_previous_state" in text
     assert "portfolio_source: portfolio_file" in text
-    assert f"portfolio_file: {tmp_path / 'positions.csv'}" in text
+    assert "Portfolio Reference" in text
+    assert "portfolio_file: positions.csv" in text
+    assert "portfolio_file_name: positions.csv" in text
     assert f"proposal_delta_tolerance: {PROPOSAL_DELTA_TOLERANCE}" in text
     assert "proposal_delta_basis: local portfolio file" in text
     assert (
@@ -1241,6 +1259,9 @@ def test_write_paper_run_report_omits_text_portfolio_name_when_unset(tmp_path: P
         "portfolio_name": None,
         "portfolio_source": "runner_previous_state",
         "portfolio_file": None,
+        "portfolio_file_name": None,
+        "portfolio_file_display": None,
+        "portfolio_file_resolved": None,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": "runner previous-state",
         "cash_weight": 0.0,
@@ -1265,11 +1286,122 @@ def test_write_paper_run_report_omits_text_portfolio_name_when_unset(tmp_path: P
     assert "portfolio_name:" not in text
     assert decoded["portfolio_source"] == "runner_previous_state"
     assert decoded["portfolio_file"] is None
+    assert decoded["portfolio_file_name"] is None
+    assert decoded["portfolio_file_display"] is None
+    assert decoded["portfolio_file_resolved"] is None
+    assert "Portfolio Reference" in text
+    assert "portfolio_source: runner_previous_state" in text
+    assert "portfolio_file:" not in text
+    assert "portfolio_file_name:" not in text
     assert decoded["proposal_delta_tolerance"] == PROPOSAL_DELTA_TOLERANCE
     assert decoded["proposal_delta_basis"] == "runner previous-state"
     assert "No real orders were executed." in text
     assert "No broker connection was used." in text
     assert "Live trading was not enabled." in text
+
+
+def test_write_paper_run_report_with_portfolio_file_without_name(tmp_path: Path) -> None:
+    context = _paper_report_context(tmp_path)
+    artifact = _minimal_paper_artifact(context)
+    artifact.update(
+        {
+            "portfolio_name": None,
+            "portfolio_source": "portfolio_file",
+            "portfolio_file": str(tmp_path / "positions.csv"),
+            "portfolio_file_name": "positions.csv",
+            "portfolio_file_display": "positions.csv",
+            "portfolio_file_resolved": str((tmp_path / "positions.csv").resolve()),
+            "proposal_delta_basis": "local portfolio file",
+        }
+    )
+
+    report_path = write_paper_run_report(context, artifact)
+
+    decoded = json.loads(report_path.read_text(encoding="utf-8"))
+    text = (context.output_dir / "paper_run_report.txt").read_text(encoding="utf-8")
+    manifest = {"paper": decoded}
+    assert decoded["portfolio_source"] == "portfolio_file"
+    assert decoded["portfolio_name"] is None
+    assert decoded["portfolio_file"] == str(tmp_path / "positions.csv")
+    assert decoded["portfolio_file_name"] == "positions.csv"
+    assert decoded["portfolio_file_display"] == "positions.csv"
+    assert "portfolio_name:" not in text
+    assert "portfolio_source: portfolio_file" in text
+    assert "portfolio_file: positions.csv" in text
+    assert "portfolio_file_name: positions.csv" in text
+    assert manifest["paper"]["portfolio_file_display"] == "positions.csv"
+
+
+def test_write_paper_run_report_with_name_without_portfolio_file(tmp_path: Path) -> None:
+    context = _paper_report_context(tmp_path)
+    artifact = _minimal_paper_artifact(context)
+    artifact["portfolio_name"] = "manual_previous_state"
+
+    report_path = write_paper_run_report(context, artifact)
+
+    decoded = json.loads(report_path.read_text(encoding="utf-8"))
+    text = (context.output_dir / "paper_run_report.txt").read_text(encoding="utf-8")
+    assert decoded["portfolio_source"] == "runner_previous_state"
+    assert decoded["portfolio_name"] == "manual_previous_state"
+    assert decoded["portfolio_file"] is None
+    assert decoded["portfolio_file_name"] is None
+    assert decoded["portfolio_file_display"] is None
+    assert "portfolio_name: manual_previous_state" in text
+    assert "portfolio_source: runner_previous_state" in text
+    assert "portfolio_file:" not in text
+    assert "portfolio_file_name:" not in text
+
+
+def _paper_report_context(tmp_path: Path) -> RunContext:
+    context = RunContext(
+        run_id="20260329_123456",
+        run_timestamp=datetime(2026, 3, 29, 12, 34, 56),
+        run_label="2026-03-29_12-34-56_short_paper",
+        profile=RunProfile.SHORT,
+        compare_mode=CompareMode.LATEST,
+        ai_agents_dir=tmp_path,
+        aktien_oop_dir=tmp_path / "aktien_oop",
+        decisions_dir=tmp_path / "decisions",
+        output_dir=tmp_path / "automation_runs" / "2026-03-29_12-34-56_short_paper",
+        backtest_config_path=tmp_path / "aktien_oop" / "backtest_config.toml",
+        runner_config_path=tmp_path / "aktien_oop" / "configs" / "runner_config.toml",
+        runner_mode=RunnerMode.PAPER,
+    )
+    context.output_dir.mkdir(parents=True)
+    return context
+
+
+def _minimal_paper_artifact(context: RunContext) -> dict[str, object]:
+    return {
+        "run_id": context.run_id,
+        "runner_mode": "paper",
+        "strategy_profile_name": "balanced_v1",
+        "strategy_profile_label": "Balanced v1",
+        "universe": "sp500",
+        "as_of": "2025-10-08",
+        "approval_status": "manual_approval_required",
+        "decision_bundle": "RUN_latest.json",
+        "portfolio_name": None,
+        "portfolio_source": "runner_previous_state",
+        "portfolio_file": None,
+        "portfolio_file_name": None,
+        "portfolio_file_display": None,
+        "portfolio_file_resolved": None,
+        "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
+        "proposal_delta_basis": "runner previous-state",
+        "cash_weight": 0.0,
+        "target_positions": {},
+        "buy_proposals": [],
+        "sell_proposals": [],
+        "hold_proposals": [],
+        "human_review_required": {"required": True, "checklist": []},
+        "warnings": [
+            "No real order was executed.",
+            "No broker connection was used.",
+            "This report is a proposal only.",
+        ],
+        "technical_info": [],
+    }
 
 
 def test_all_strategy_profiles_remain_loadable() -> None:

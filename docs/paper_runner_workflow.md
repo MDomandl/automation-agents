@@ -63,13 +63,18 @@ Beispiel:
 
 `--portfolio-file` zeigt dabei immer auf eine einzelne CSV-Datei. `--portfolio-name` ist nur eine optionale Bezeichnung fuer Reports. Pro Paper-Run wird immer nur ein Portfolio verarbeitet; es gibt keine Multi-Portfolio-Batch-Verarbeitung.
 
+Paper-Reports weisen die verwendete Portfolio-Referenz auditierbar aus. Dadurch bleibt auch spaeter nachvollziehbar, ob die Vergleichsbasis aus einer lokalen CSV-Datei oder aus dem Runner-Previous-State kam.
+
 ## Bedeutung der Report-Felder
 
 * `runner_mode`: Runner-Modus des Laufs, im Paper-Workflow `paper`.
 * `strategy_profile_name`: verwendetes Strategieprofil, z. B. `balanced_v1`.
-* `portfolio_name`: optionaler lokaler Name zur technischen Zuordnung des verwendeten Ist-Portfolios.
-* `portfolio_source`: Herkunft der Ist-Portfolio-Daten, z. B. `portfolio_file`.
-* `portfolio_file`: Pfad der verwendeten lokalen Portfolio-Datei.
+* `portfolio_source`: Herkunft der Ist-Portfolio-Daten, z. B. `portfolio_file` oder `runner_previous_state`.
+* `portfolio_name`: optionaler lokaler Name zur technischen Zuordnung des verwendeten Ist-Portfolios. Der Wert ist nur Metadaten und veraendert keine Berechnung.
+* `portfolio_file`: vom Nutzer angegebener Pfad der verwendeten lokalen Portfolio-Datei, falls `--portfolio-file` gesetzt wurde.
+* `portfolio_file_name`: Dateiname der verwendeten Portfolio-Datei.
+* `portfolio_file_display`: gut lesbare Anzeigeform fuer Reports, wenn moeglich relativ zur Projektwurzel.
+* `portfolio_file_resolved`: absolut aufgeloester Pfad, wenn technisch stabil verfuegbar.
 * `proposal_delta_tolerance`: Toleranz für die Buy/Sell/Hold-Klassifikation.
 * `proposal_delta_basis`: fachliche Basis der Delta-Berechnung, z. B. `local portfolio file`.
 * `orders_executed`: zeigt an, ob Orders ausgeführt wurden; im Paper-Workflow `false`.

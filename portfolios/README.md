@@ -79,6 +79,8 @@ AAPL,0.20
 --portfolio-name example_local
 ```
 
+Der Paper-Report dokumentiert den verwendeten Portfolio-Pfad beziehungsweise Dateinamen. So bleibt spaeter nachvollziehbar, welche lokale CSV-Datei als Ist-Portfolio fuer den Run verwendet wurde.
+
 Es erfolgt keine Multi-Portfolio-Batch-Verarbeitung. Pro Paper-Run wird immer nur die ueber `--portfolio-file` angegebene einzelne CSV-Datei verarbeitet.
 
 Es gibt keine Batch-Verarbeitung, keine Broker- oder Live-Trading-Anbindung, keine Orderlogik und keine Stueckzahl- oder Euro-Berechnung.

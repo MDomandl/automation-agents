@@ -6264,6 +6264,33 @@ Bewusste Abgrenzung:
 * Keine Euro-Berechnung.
 * Keine Aenderung von Strategieauswahl, Scoring, Ranking, Rebalancing, Proposal-Klassifikation, Backtest-Logik, Runner-Berechnung, Decision-Bundle-Erzeugung oder Paper-Report-Fachlogik.
 
+## 06.30 - Portfolio-Referenz & Report-Nachvollziehbarkeit
+
+Paper-Reports weisen die verwendete Portfolio-Referenz klarer aus. Ziel ist, alte Paper-Runs auch spaeter auditierbar nachvollziehen zu koennen.
+
+Ergaenzt wurden reine Metadatenfelder fuer die Portfolio-Referenz:
+
+* `portfolio_source`
+* `portfolio_name`
+* `portfolio_file`
+* `portfolio_file_name`
+* `portfolio_file_display`
+* `portfolio_file_resolved`
+
+Die Felder erscheinen im Paper-JSON und im Paper-Bereich des Manifests. Der TXT-Report zeigt eine kurze Portfolio-Reference-Sektion und laesst Datei-Zeilen weg, wenn kein `--portfolio-file` gesetzt wurde.
+
+Bewusste Abgrenzung:
+
+* Keine Berechnungsaenderung.
+* Keine Proposal-Aenderung.
+* Keine Portfolio-Normalisierung.
+* Keine Batch-Verarbeitung.
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine Orderlogik.
+* Keine Stueckzahl-Berechnung.
+* Keine Euro-Berechnung.
+
 
 
 
