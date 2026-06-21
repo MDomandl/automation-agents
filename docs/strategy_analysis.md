@@ -6396,3 +6396,46 @@ Sicherheitsabgrenzung:
 * Keine Gewichtungsnormalisierung.
 * Keine Batch-Logik oder Multi-Portfolio-Verarbeitung.
 * Keine Aenderung an Strategieauswahl, Scoring, Ranking, Rebalancing, Proposal-Klassifikation, Backtest-Logik, Runner-Berechnung, Decision-Bundle-Erzeugung oder Portfolio-Deltas.
+
+## 06.90 - Phase-6-Abschluss
+
+Phase 6 ist dokumentarisch abgeschlossen. Erreicht wurden:
+
+* Lokale Portfolio-Struktur ueber den Ordner `portfolios/`.
+* CSV-Validierung und Testabdeckung fuer lokale Portfolio-Dateien im Format `symbol,weight`.
+* Portfolio-Referenz im Paper-Report und im Manifest.
+* Portfolio Checks im Paper-Report zur manuellen Plausibilitaetspruefung.
+* Workflow-Konsolidierung mit klarer Human-Review-Pflicht.
+* Erfolgreicher Kontrolllauf `20260621_224555` mit lokalem Beispielportfolio `portfolios\example_local_portfolio.csv`.
+
+Einordnung:
+
+* Phase 6 verbessert Organisation, Nachvollziehbarkeit und manuelle Pruefung lokaler Ist-Portfolios.
+* Die Paper-Runner-Basis ist dadurch besser auditierbar.
+* Es wurde keine Handelsautomatisierung eingefuehrt.
+* Es gibt weiterhin genau einen Paper-Run mit genau einer Portfolio-Datei.
+* Mehrere lokale CSV-Dateien koennen organisatorisch existieren, werden aber nicht als Batch verarbeitet.
+* Human Review bleibt verpflichtend; Portfolio Reference und Portfolio Checks sind Pruef- und Audit-Hilfen, keine Freigabe.
+
+Sicherheitsgrenzen:
+
+* Kein Broker.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stueckzahlberechnung.
+* Keine Euro- oder Ordergroessenberechnung.
+* Keine Gewichtungsnormalisierung.
+* Keine Multi-Portfolio-Batch-Verarbeitung.
+* Keine Personen- oder Mandantenverwaltung.
+
+Bewusst nicht eingefuehrt:
+
+* Keine Aenderung an Strategieauswahl, Scoring, Ranking oder Rebalancing.
+* Keine Aenderung an Proposal-Klassifikation, Proposal-Toleranz oder Portfolio-Deltas.
+* Keine Aenderung an Backtest-Logik, Runner-Berechnung oder Decision-Bundle-Erzeugung.
+* Keine Portfolio-Normalisierung.
+* Keine Broker-, Order- oder Live-Trading-Logik.
+
+Ausblick:
+
+Phase 7 kann den Paper-Betrieb ueber mehrere Laeufe beobachten. Sinnvolles Ziel waere, Verlauf, Stabilitaet und Report-Vergleich ueber wiederholte Paper-Runs auszuwerten, weiterhin ohne Broker, Live-Trading oder Orders.

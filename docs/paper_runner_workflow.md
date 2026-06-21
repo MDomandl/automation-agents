@@ -65,6 +65,8 @@ Beispiel:
 
 Paper-Reports weisen die verwendete Portfolio Reference auditierbar aus. Dadurch bleibt auch spaeter nachvollziehbar, ob die Vergleichsbasis aus einer lokalen CSV-Datei oder aus dem Runner-Previous-State kam.
 
+Phase 6 ist damit fuer den lokalen Portfolio-Workflow abgeschlossen: lokale Portfolio-Dateien, CSV-Validierung, Portfolio Reference und Portfolio Checks sind dokumentiert. Human Review bleibt fuer jeden Paper-Run verpflichtend.
+
 ## Portfolio Checks im Paper-Report
 
 Wenn `--portfolio-file` gesetzt ist, enthaelt der Paper-Report eine kleine Plausibilitaetsuebersicht zur lokalen CSV-Datei:
