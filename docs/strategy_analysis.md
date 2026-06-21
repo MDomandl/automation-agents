@@ -6340,3 +6340,59 @@ Bewusste Abgrenzung:
 * Keine Gewichtungsnormalisierung.
 * Keine Multi-Portfolio-Batch-Verarbeitung.
 * Keine Personen- oder Mandantenverwaltung.
+
+## 06.60 - Kontrolllauf mit lokalem Beispielportfolio
+
+Ziel war ein fokussierter Paper-Kontrolllauf mit dem lokalen Beispielportfolio aus `portfolios/`.
+Der Lauf sollte pruefen, ob Portfolio Reference, Portfolio Checks, Paper-Reports und Manifest die lokale Portfolio-Organisation praktisch nachvollziehbar ausweisen.
+
+Verwendeter Befehl:
+
+[CODE_START]
+.venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file portfolios\example_local_portfolio.csv --portfolio-name example_local
+[CODE_END]
+
+Kontrolllauf:
+
+* Run-ID: `20260621_224555`
+* Run-Ordner: `D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-21_22-45-55_short_paper`
+* `as_of`: `2025-10-08`
+* Portfolio-Datei: `portfolios\example_local_portfolio.csv`
+* Portfolio-Name: `example_local`
+* `portfolio_source`: `portfolio_file`
+* `portfolio_file_name`: `example_local_portfolio.csv`
+* `portfolio_file_display`: `portfolios\example_local_portfolio.csv`
+
+Portfolio Checks:
+
+* `position_count`: `3`
+* `total_weight`: `0.12`
+* `total_weight_delta_to_1`: `-0.88`
+* `weight_sum_is_near_1`: `false`
+* `symbols_preview`: `DASH`, `IVZ`, `CVS`
+
+Proposal-Zusammenfassung:
+
+* Buy: CVS, DASH, EBAY, GE, IVZ, NEM, PLTR, PSKY, WDC
+* Sell: keine
+* Hold: keine
+
+Bewertung:
+
+* Der Paper-Kontrolllauf war technisch erfolgreich.
+* Backtest, Runner und Compare waren erfolgreich; der Compare war matched.
+* `paper_run_report.json`, `paper_run_report.txt` und `run_manifest.json` wurden erzeugt.
+* JSON-Report und Manifest enthalten Portfolio Reference, Portfolio Checks, Paper-Artefakte und Sicherheitsfelder.
+* Der TXT-Report enthaelt Portfolio Reference, Portfolio Checks, Human Review sowie No-Execution-/No-Broker-/No-Live-Trading-Hinweise.
+* Die geringe Gewichtssumme des Beispielportfolios wird sichtbar gemacht, aber nicht normalisiert und nicht automatisch blockiert.
+
+Sicherheitsabgrenzung:
+
+* Keine Investitionsfreigabe.
+* Keine Broker-Anbindung.
+* Kein Live-Trading.
+* Keine echten Orders.
+* Keine Stueckzahl- oder Euro-Berechnung.
+* Keine Gewichtungsnormalisierung.
+* Keine Batch-Logik oder Multi-Portfolio-Verarbeitung.
+* Keine Aenderung an Strategieauswahl, Scoring, Ranking, Rebalancing, Proposal-Klassifikation, Backtest-Logik, Runner-Berechnung, Decision-Bundle-Erzeugung oder Portfolio-Deltas.
