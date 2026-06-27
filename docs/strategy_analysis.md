@@ -6439,3 +6439,413 @@ Bewusst nicht eingefuehrt:
 Ausblick:
 
 Phase 7 kann den Paper-Betrieb ueber mehrere Laeufe beobachten. Sinnvolles Ziel waere, Verlauf, Stabilitaet und Report-Vergleich ueber wiederholte Paper-Runs auszuwerten, weiterhin ohne Broker, Live-Trading oder Orders.
+
+## 07.10 Phase-7-Zielbild & Beobachtungslogik
+
+Phase 7 startet nach dem Abschluss von Phase 6. Nach der lokalen Portfolio-Organisation, der Portfolio Reference und den Portfolio Checks liegt der naechste Schwerpunkt auf dem Paper-Betrieb ueber mehrere Laeufe hinweg.
+
+Ziel von Phase 7 ist die Beobachtung mehrerer Paper-Runs ueber die Zeit. Jeder Paper-Run bleibt dabei ein eigenstaendiger Einzelrun. Es wird keine Batch-Verarbeitung eingefuehrt, und aus mehreren beobachteten Laeufen entsteht keine gemeinsame Ausfuehrungslogik.
+
+Die Verlaufsauswertung soll spaeter sichtbar machen, wie sich Proposals zwischen einzelnen Paper-Runs veraendern. Im Zentrum steht weiterhin das Strategieprofil `balanced_v1`, weil dieses Profil als zentrale, zu beobachtende Paper-Konfiguration dient.
+
+### Abgrenzung der Auswertungsebenen
+
+Phase 7 soll klar zwischen drei Ebenen unterscheiden:
+
+* **Einzelrun-Report:** beschreibt einen einzelnen Paper-Run mit seinen Eingaben, Portfolio-Hinweisen, Zielgewichten, Vergleichswerten und Proposals.
+* **Verlaufs-/Vergleichsreport:** kann spaeter mehrere eigenstaendige Paper-Runs gegenueberstellen und Proposal-Aenderungen zwischen Laeufen sichtbar machen.
+* **Human Review:** bewertet Auffaelligkeiten manuell. Diese Ebene bleibt die einzige Stelle fuer fachliche Einordnung; sie erzeugt keine automatische Freigabe.
+
+Ein Proposal-Wechsel ist keine Handlungsempfehlung. Die Auswertung dient ausschliesslich der manuellen Pruefung und erzeugt keine Investitionsfreigabe.
+
+### Beobachtete Informationen
+
+Fuer einzelne Paper-Runs und spaetere Verlaufsvergleiche sollen insbesondere folgende Informationen beobachtet werden:
+
+* Run-ID
+* Run-Zeitpunkt
+* Profil
+* Strategieprofil, insbesondere `balanced_v1`
+* `runner_mode` `paper`
+* `as_of`
+* Portfolio-Datei
+* optionaler Portfolio-Name
+* Portfolio Reference
+* Portfolio Checks
+* Zielgewichte
+* Ist-/Vergleichsgewichte
+* Buy/Sell/Hold-Proposals
+* Proposal-Delta
+* Proposal-Toleranz
+
+Diese Informationen dienen der Nachvollziehbarkeit. Sie sind Pruef- und Vergleichsdaten, keine Orderdaten.
+
+### Beobachtungslogik ueber mehrere Laeufe
+
+Die Beobachtung soll zeigen, welche Proposal- und Gewichtungsveraenderungen zwischen Paper-Runs auftreten. Relevant sind insbesondere:
+
+* neue Positionen
+* weggefallene Positionen
+* unveraenderte Positionen
+* geaenderte Zielgewichte
+* geaenderte Proposal-Klassen
+* haeufig wechselnde Vorschlaege
+* stabile Vorschlaege
+* auffaellige Spruenge
+
+Die Beobachtung ist zeitbezogen, aber nicht transaktionsbezogen. Mehrere Paper-Runs koennen verglichen werden, bleiben jedoch jeweils eigenstaendige Analyseartefakte.
+
+### Sicherheitsgrenzen
+
+Phase 7 bleibt vollstaendig innerhalb des Paper-Betriebs. Nicht Teil von Phase 7 sind:
+
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+
+Die Verlaufsauswertung kann spaeter Hinweise fuer eine manuelle Pruefung liefern. Sie ersetzt keine Human Review, gibt keine Investition frei und leitet keine Handlung automatisch ab.
+
+## 07.20 Paper-Run-History: Datenquelle & Vergleichsmodell festlegen
+
+Ziel dieses Abschnitts ist die fachliche Festlegung, welche bestehenden Paper-Run-Artefakte spaeter fuer eine Verlaufsauswertung verwendet werden koennen und welches Vergleichsmodell dafuer sinnvoll ist.
+
+### Datenquelle
+
+Grundlage fuer spaetere Verlaufsauswertungen sind bestehende Paper-Run-Artefakte. Hauptquelle ist `paper_run_report.json` aus einzelnen `automation_runs/...`-Run-Ordnern.
+
+Jeder Run bleibt ein eigenstaendiger, bereits erzeugter Paper-Run. Es wird in diesem Schritt keine automatische Run-Erzeugung eingefuehrt und keine Logik ergaenzt, die mehrere Paper-Runs automatisch ausfuehrt.
+
+### Vergleichbarkeit von Runs
+
+Runs sind fachlich vor allem dann sinnvoll vergleichbar, wenn die wichtigsten Rahmenbedingungen uebereinstimmen oder bewusst als Vergleichsdimension gewaehlt wurden:
+
+* gleicher `runner_mode = paper`
+* gleiches oder bewusst ausgewaehltes Strategieprofil, insbesondere `balanced_v1`
+* gleicher Profiltyp, zum Beispiel `short`, `medium` oder `long`
+* nachvollziehbarer `as_of`-Zeitpunkt
+* gleiche oder bewusst unterschiedliche Portfolio-Datei
+* optional gleicher Portfolio-Name
+* konsistente Proposal-Toleranz
+
+Abweichungen sind nicht ausgeschlossen, muessen aber im Vergleich sichtbar bleiben. Ein Vergleich zwischen unterschiedlichen Profilen, Portfolio-Dateien oder `as_of`-Zeitpunkten kann fachlich sinnvoll sein, ist aber anders zu interpretieren als ein Vergleich unter konstanten Rahmenbedingungen.
+
+### Relevante Metadaten pro Run
+
+Fuer eine spaetere History-Auswertung sollen pro Paper-Run insbesondere folgende Metadaten betrachtet werden:
+
+* Run-ID
+* Run-Zeitpunkt beziehungsweise Run-Ordner
+* Profil
+* Strategieprofil
+* `runner_mode`
+* `as_of`
+* Portfolio-Quelle
+* Portfolio-Datei
+* Portfolio-Dateiname
+* Portfolio-Anzeigename beziehungsweise Display-Pfad
+* optionaler Portfolio-Name
+* Portfolio Checks
+* Proposal-Toleranz
+* Sicherheitsfelder
+* Human-Review-Hinweise
+
+Diese Metadaten dienen der Einordnung, ob zwei Runs direkt vergleichbar sind oder ob der Vergleich bewusst unterschiedliche Eingaben gegenueberstellt.
+
+### Relevante Positionsdaten pro Symbol
+
+Fuer jedes Symbol sollen spaeter insbesondere folgende Informationen vergleichbar sein:
+
+* Symbol
+* Zielgewicht
+* Ist- beziehungsweise Vergleichsgewicht
+* Delta zwischen Ziel und Ist/Vergleich
+* Proposal-Klasse `Buy`, `Sell` oder `Hold`
+* Delta-Basis
+* gegebenenfalls Sortierung oder Rang, sofern im Artefakt vorhanden
+
+Die Positionsdaten bleiben reine Vergleichsdaten. Sie fuehren nicht zu Stueckzahl-, Euro- oder Orderberechnungen.
+
+### Vergleichsmodell zwischen Laeufen
+
+Ein Vergleich zwischen zwei Paper-Runs soll spaeter sichtbar machen, welche strukturellen und fachlichen Unterschiede zwischen den Artefakten bestehen. Relevant sind insbesondere:
+
+* Symbol neu im Zielportfolio
+* Symbol aus Zielportfolio verschwunden
+* Symbol in beiden Laeufen vorhanden
+* Zielgewicht gestiegen
+* Zielgewicht gefallen
+* Zielgewicht unveraendert
+* Proposal-Klasse gewechselt
+* Delta groesser geworden
+* Delta kleiner geworden
+* stabile Position ueber mehrere Laeufe
+* auffaelliger Sprung
+
+Das Vergleichsmodell beschreibt Unterschiede zwischen Paper-Run-Artefakten. Es erzeugt keine Ausfuehrungslogik und fuehrt keine automatische Bewertung als gut oder schlecht durch.
+
+### Keine fachliche Bewertung automatisieren
+
+Ein Vergleich zeigt Unterschiede, bewertet sie aber nicht automatisch als gut oder schlecht. Proposal-Aenderungen sind Pruefsignale, keine Handlungsempfehlungen.
+
+Aus einer History-Auswertung entsteht keine Investitionsfreigabe. Human Review bleibt zwingend und ist die einzige Ebene, auf der Auffaelligkeiten fachlich eingeordnet werden duerfen.
+
+### Moegliche spaetere Artefakte
+
+Als moegliches Zielbild fuer spaetere Schritte koennen zusaetzliche Artefakte entstehen, zum Beispiel:
+
+* `paper_run_history.json`
+* `paper_run_history.md` oder `.txt`
+* Vergleich zweier Runs
+* spaeter eventuell Verlauf ueber mehrere Runs
+
+Diese Artefakte sind hier nur als Zielbild beschrieben. Sie werden in diesem Schritt nicht implementiert. Der Paper-Betrieb bleibt weiterhin ohne automatische Paper-Run-Ausfuehrung, ohne Batch-Verarbeitung, ohne Broker-Anbindung, ohne Live-Trading und ohne echte Orders.
+
+## 07.30 Beobachtungsdauer & Belastbarkeit der Paper-Ergebnisse
+
+Ziel dieses Abschnitts ist die fachliche Einordnung, wie lange Paper-Runs beobachtet werden sollten, bevor Ergebnisse als aussagekraeftiger gelten koennen.
+
+### Grundsatz
+
+Es kann nicht serioes garantiert werden, ab welchem Zeitpunkt `balanced_v1` besser als der passende Index oder die passende Benchmark sein wird.
+
+Eine laengere Beobachtungsdauer kann nur helfen, die Aussagekraft der Paper-Ergebnisse besser einzuschaetzen. Sie erzeugt keine Sicherheit ueber kuenftige Outperformance.
+
+Der Paper-Betrieb ist ein Forward-Test beziehungsweise eine Beobachtung ausserhalb der urspruenglichen Backtest-Auswertung. Er zeigt, wie sich die Strategie nach der Backtest-Phase unter fortlaufend neuen Marktdaten verhaelt.
+
+### Ergebnis versus Belastbarkeit
+
+Nach jedem Paper-Run kann festgestellt werden, ob die Strategie im beobachteten Zeitraum besser oder schlechter als die Benchmark war.
+
+Daraus folgt aber noch keine belastbare Aussage ueber eine dauerhafte Ueberlegenheit. Kurzfristige Outperformance kann Zufall sein oder aus einer bestimmten Marktphase entstehen, die fuer `balanced_v1` guenstig war.
+
+Ein einzelnes Ergebnis beschreibt daher nur den beobachteten Zeitraum. Die Belastbarkeit entsteht erst durch wiederholbare, nachvollziehbare Beobachtung ueber ausreichend lange Zeitraeume und unterschiedliche Marktbedingungen.
+
+### Beobachtungsstufen
+
+Fuer Paper-Ergebnisse gilt folgende einfache, konservative Einordnung:
+
+* **weniger als 6 Monate:** Beobachtung laeuft, Aussagekraft gering, starkes Rauschen moeglich.
+* **ab ca. 6 Monaten:** erste Tendenz erkennbar, aber noch nicht belastbar.
+* **ab ca. 12 Monaten:** vorlaeufig brauchbarer Eindruck, sofern genuegend Vergleichspunkte vorhanden sind.
+* **ab ca. 18 bis 24 Monaten:** deutlich interessanter, weil mehrere Marktbewegungen enthalten sein koennen.
+* **ab ca. 36 Monaten oder ueber mehrere unterschiedliche Marktphasen:** robusterer Eindruck moeglich, aber weiterhin keine Garantie.
+
+Diese Stufen sind keine automatische Qualitaetsbewertung. Sie beschreiben nur, wie vorsichtig Paper-Ergebnisse zeitlich eingeordnet werden sollten.
+
+### Mindestbeobachtung fuer `aktien_oop`
+
+Fuer `balanced_v1` gilt als Arbeitsregel:
+
+* mindestens 12 Monate Paper-Beobachtung fuer eine erste belastbarere Einschaetzung
+* besser 18 bis 24 Monate
+* idealerweise mehrere unterschiedliche Marktphasen
+* monatliche oder anderweitig klar nachvollziehbare Vergleichspunkte
+* Vergleich immer gegen passende Benchmark beziehungsweise passenden Index
+
+Die Arbeitsregel dient nur der Einordnung der Beobachtungsqualitaet. Sie leitet keine Investitionsfreigabe ab und ersetzt keine fachliche Pruefung.
+
+### Relevante Bewertungskriterien
+
+Die Paper-Beobachtung soll nicht nur Rendite betrachten. Relevant sind insbesondere:
+
+* relative Rendite gegenueber Benchmark
+* Volatilitaet
+* Maximum Drawdown
+* Ulcer-/Pain-Werte, sofern vorhanden
+* Trefferquote gegenueber Benchmark pro Zeitraum
+* Stabilitaet der Zielpositionen
+* Stabilitaet der Buy/Sell/Hold-Proposals
+* Turnover beziehungsweise Haeufigkeit der Wechsel
+* auffaellige Spruenge
+* Verhalten in unterschiedlichen Marktphasen
+
+Eine reine Renditebetrachtung kann irrefuehrend sein, wenn sie Risiko, Schwankung, Drawdown, Wechselhaeufigkeit oder Marktphasen nicht beruecksichtigt.
+
+### Vertrauensstufen statt Freigabe
+
+Phase 7 soll eher eine Vertrauens- beziehungsweise Belastbarkeitsstufe dokumentieren als eine Entscheidung ableiten. Sinnvolle Stufen sind:
+
+* Beobachtung laeuft
+* erste Tendenz
+* vorlaeufig belastbarer Eindruck
+* robusterer Eindruck
+* marktphasen-geprueft
+
+Diese Stufen sind keine Anlageempfehlung und keine Freigabe fuer Investitionen. Sie dienen nur dazu, Paper-Historien nachvollziehbar und vorsichtig einzuordnen.
+
+### Human Review
+
+Jede Einschaetzung bleibt manuell zu pruefen. Eine gute Paper-Historie ersetzt keine fachliche Entscheidung.
+
+Proposal-Aenderungen und Outperformance sind Pruefsignale, keine Handlungsanweisungen. Auffaelligkeiten muessen im Kontext von Marktphase, Benchmark, Strategieprofil, Portfolio-Eingaben und vorhandenen Risikokennzahlen geprueft werden.
+
+### Sicherheitsgrenze
+
+Auch bei langer Paper-Beobachtung gilt:
+
+* keine Garantie auf kuenftige Outperformance
+* keine automatische Entscheidung
+* keine Investitionsfreigabe
+* keine Ordervorbereitung
+* kein Broker
+* kein Live-Trading
+* keine echten Orders
+
+## 07.40 History-Report-Kennzahlen festlegen
+
+Ziel dieses Abschnitts ist die fachliche Festlegung, welche Kennzahlen ein spaeterer Paper-Run-History-Report aus bestehenden Paper-Run-Artefakten auswerten soll.
+
+Der History-Report soll vorhandene Paper-Run-Artefakte auswerten. Er startet keine neuen Paper-Runs und fuehrt keine automatische Paper-Run-Ausfuehrung ein.
+
+Der Report soll Verlauf, Stabilitaet und Auffaelligkeiten ueber mehrere bestehende Paper-Runs sichtbar machen. Er dient ausschliesslich der manuellen Pruefung und ersetzt keine Human Review.
+
+### Run-Historie
+
+Fuer die Einordnung der ausgewerteten Paper-Runs sollen insbesondere folgende Kennzahlen und Metadaten betrachtet werden:
+
+* Anzahl ausgewerteter Paper-Runs
+* erster Run
+* letzter Run
+* abgedeckter Zeitraum
+* erste und letzte `as_of`-Angabe
+* verwendete Profile
+* verwendete Strategieprofile
+* verwendete Portfolio-Dateien
+* verwendete Portfolio-Namen
+* Konsistenz von `runner_mode = paper`
+* Konsistenz der Proposal-Toleranz
+
+Diese Angaben dienen dazu, die Vergleichbarkeit der Runs sichtbar zu machen. Wechselnde Profile, Portfolio-Dateien, Portfolio-Namen oder Proposal-Toleranzen koennen fachlich relevant sein und muessen im Report nachvollziehbar bleiben.
+
+### Benchmark-/Index-Vergleich
+
+Falls die erforderlichen Daten verfuegbar sind, soll spaeter betrachtet werden:
+
+* Strategie-Rendite im Beobachtungszeitraum
+* Benchmark-/Index-Rendite im Beobachtungszeitraum
+* relative Differenz Strategie vs. Benchmark
+* Anzahl Perioden mit Outperformance
+* Anzahl Perioden mit Underperformance
+* Trefferquote gegenueber Benchmark
+
+Diese Kennzahlen sind Beobachtungswerte. Sie beweisen keine kuenftige Ueberlegenheit und erzeugen keine Investitionsfreigabe.
+
+### Proposal-Stabilitaet
+
+Fuer Buy/Sell/Hold-Proposals sollen spaeter insbesondere folgende Kennzahlen betrachtet werden:
+
+* Anzahl Buy-Proposals je Run
+* Anzahl Sell-Proposals je Run
+* Anzahl Hold-Proposals je Run
+* Anzahl Proposal-Wechsel zwischen zwei Laeufen
+* haeufig wechselnde Symbole
+* ueber mehrere Laeufe stabile Symbole
+* neue Buy-Signale
+* neue Sell-Signale
+* Symbole mit wiederholtem Hin und Her zwischen Buy/Sell/Hold
+
+Proposal-Stabilitaet beschreibt die Nachvollziehbarkeit und Veraenderung der Vorschlaege. Sie ist keine automatische Bewertung der Qualitaet eines Symbols und keine Handlungsempfehlung.
+
+### Positionsverlauf
+
+Der spaetere Report soll sichtbar machen koennen, wie sich Zielportfolio-Symbole ueber mehrere Paper-Runs entwickeln. Moegliche Kennzahlen sind:
+
+* neue Symbole im Zielportfolio
+* entfernte Symbole aus dem Zielportfolio
+* durchgehend vorhandene Symbole
+* einmalig auftauchende Symbole
+* wiederkehrende Symbole
+* durchschnittliche Haltedauer im Zielportfolio, sofern spaeter sinnvoll ableitbar
+* Konzentration der Zielpositionen
+
+Der Positionsverlauf bleibt eine Beobachtung der Zielportfolio-Struktur. Er fuehrt nicht zu Stueckzahl-, Euro- oder Orderberechnungen.
+
+### Gewichtungsaenderungen
+
+Fuer Zielgewichte und Vergleichsgewichte sollen spaeter insbesondere folgende Kennzahlen betrachtet werden:
+
+* Zielgewicht gestiegen
+* Zielgewicht gefallen
+* Zielgewicht unveraendert
+* groesste absolute Zielgewichtsaenderung
+* durchschnittliche Zielgewichtsaenderung
+* Summe absoluter Zielgewichtsaenderungen
+* auffaellige Gewichtungsspruenge
+* Entwicklung des Abstands zwischen Zielgewicht und Vergleichsgewicht
+
+Gewichtungsaenderungen dienen der Stabilitaetsbeobachtung. Sie fuehren nicht zu Gewichtungsnormalisierung, Ordervorbereitung oder echter Portfolio-Umschichtung.
+
+### Portfolio-Checks
+
+Der spaetere History-Report soll auch pruefen beziehungsweise anzeigen koennen:
+
+* ob Portfolio Checks in allen ausgewerteten Runs vorhanden sind
+* ob Portfolio-Gewichtssummen auffaellig sind
+* ob fehlende Symbole auftreten
+* ob zusaetzliche Symbole auftreten
+* ob Warnungen wiederholt auftreten
+* ob dieselbe Portfolio-Referenz konsistent verwendet wurde
+
+Portfolio-Checks bleiben Pruefhinweise. Wiederholte Warnungen sollen sichtbar werden, aber nicht automatisch als gut oder schlecht bewertet werden.
+
+### Risiko- und Belastbarkeitskennzahlen
+
+Falls die erforderlichen Daten verfuegbar sind, sollen spaeter betrachtet werden:
+
+* Volatilitaet
+* Maximum Drawdown
+* Ulcer-/Pain-Werte, sofern vorhanden
+* Turnover beziehungsweise Wechselhaeufigkeit
+* Stabilitaet ueber mehrere Marktphasen
+* Vertrauensstufe gemaess 07.30
+
+Diese Kennzahlen ergaenzen die reine Renditebetrachtung um Risiko, Schwankung, Wechselhaeufigkeit und Marktphasen. Auch daraus entsteht keine automatische Entscheidung.
+
+### Auffaelligkeiten
+
+Der spaetere Report soll Auffaelligkeiten markieren koennen, zum Beispiel:
+
+* starke Proposal-Wechsel
+* starke Zielgewichtsaenderungen
+* stark schwankende Deltas
+* haeufige Portfolio-Check-Warnungen
+* unklare Vergleichbarkeit von Runs
+* wechselnde Portfolio-Dateien oder Portfolio-Namen
+* uneinheitliche Proposal-Toleranzen
+* fehlende Pflichtinformationen
+
+Auffaelligkeiten sind Pruefsignale fuer die manuelle Auswertung. Der Report bewertet sie nicht automatisch als gut oder schlecht.
+
+### Abgrenzung
+
+Der History-Report bleibt ein Nachvollziehbarkeits- und Pruefartefakt. Er erzeugt keine Handlungsempfehlungen, keine Orders und keine Investitionsfreigabe.
+
+Er ersetzt keinen Human Review. Seine Aufgabe ist ausschliesslich die Nachvollziehbarkeit, Stabilitaetsbeobachtung und manuelle Pruefung bestehender Paper-Run-Artefakte.
+
+Nicht Teil dieses Zielbilds sind:
+
+* keine neuen Paper-Runs
+* keine Batch-Verarbeitung
+* keine automatische Paper-Run-Ausfuehrung
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+* keine Investitionsfreigabe
+
+### Moegliche spaetere Artefakte
+
+Als moegliches Zielbild fuer spaetere Schritte koennen zusaetzliche Artefakte entstehen, zum Beispiel:
+
+* `paper_run_history.json`
+* `paper_run_history.md`
+* optional `.txt`
+* optional Vergleich zweier Runs
+* optional Verlauf ueber mehrere Runs
+
+Diese Artefakte werden hier nur fachlich beschrieben. Sie werden in diesem Schritt nicht implementiert und nicht erzeugt.
