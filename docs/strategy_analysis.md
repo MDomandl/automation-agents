@@ -7183,3 +7183,94 @@ Sicherheitsabgrenzung:
 * keine Gewichtungsnormalisierung
 * keine Personen- oder Mandantenverwaltung
 * keine Investitionsfreigabe
+
+## 07.90 Phase-7-Zwischenabschluss & weiteres Beobachtungsvorgehen
+
+Ziel dieses Abschnitts ist der Zwischenabschluss von Phase 7. Die bisherige Arbeit hat den Paper-Betrieb ueber mehrere Laeufe fachlich eingeordnet, technisch auswertbar gemacht und einen ersten kontrollierten Run-zu-Run-Vergleich auf Basis vorhandener Artefakte ermoeglicht.
+
+Zwischenstand Phase 7:
+
+* Das Zielbild fuer Paper-Betrieb ueber mehrere Laeufe ist dokumentiert.
+* Datenquelle und Vergleichsmodell fuer Paper-Run-History sind dokumentiert.
+* Beobachtungsdauer und Belastbarkeit der Paper-Ergebnisse sind fachlich eingeordnet.
+* Kennzahlen fuer History-Reports sind festgelegt.
+* Der History-Collector ist implementiert.
+* Ein Kontrolllauf mit echtem Paper-Artefakt wurde durchgefuehrt.
+* Vorhandene History-Artefakte wurden fachlich geprueft.
+* Der Run-zu-Run-Vergleich vorhandener Paper-Reports ist implementiert.
+
+Technischer Stand:
+
+* `scripts/collect_paper_run_history.py`
+* `scripts/compare_paper_runs.py`
+* `reports/paper_run_history/paper_run_history.json`
+* `reports/paper_run_history/paper_run_history.md`
+* `reports/paper_run_comparison/paper_run_comparison.json`
+* `reports/paper_run_comparison/paper_run_comparison.md`
+
+Ergebnis des ersten Run-zu-Run-Vergleichs:
+
+Verglichene Runs:
+
+* `2026-06-21_22-45-55_short_paper`
+* `2026-06-27_15-34-57_short_paper`
+
+Beide Runs waren fachlich gut vergleichbar. Die geprueften Rahmenbedingungen waren gleich genug, um einen ersten neutralen Vergleich der Zielgewichte, Proposals und Deltas vorzunehmen.
+
+Ergebnis:
+
+* neue Symbole: `0`
+* entfernte Symbole: `0`
+* gemeinsame Symbole: `9`
+* Proposal-Wechsel: `0`
+* auffaellige Zielgewichtsspruenge: `0`
+* Delta-Aenderungen: `0`
+* Warnungen: `0`
+
+Einordnung:
+
+* Das Ergebnis ist ein Stabilitaetssignal fuer diesen kurzen Vergleichszeitraum.
+* Es ist kein Beweis fuer dauerhafte Stabilitaet.
+* Es ist kein Beweis fuer zukuenftige Outperformance.
+* Es ist keine Investitionsfreigabe.
+
+Aussagekraft und Grenzen:
+
+* Die bisherige Paper-Historie ist noch kurz.
+* Die Beobachtung deckt noch keine laengere echte Forward-Test-Phase ab.
+* Die Aussagekraft waechst erst ueber mehrere Monate und unterschiedliche Marktphasen.
+* Die ersten drei aelteren Reports sind nur eingeschraenkt vergleichbar.
+* Die letzten zwei Reports sind fuer den ersten Vergleich gut geeignet.
+* Der aktuelle Vergleich zeigt technische und kurzfristige fachliche Stabilitaet, aber keine langfristige Belastbarkeit.
+
+Weiteres Beobachtungsvorgehen als Arbeitsregel:
+
+* Paper-Runs nicht kuenstlich haeufig erzeugen.
+* Sinnvoll sind wiederholte Einzelruns in klaren zeitlichen Abstaenden.
+* Nach jedem neuen geeigneten Paper-Run:
+  1. History-Collector ausfuehren.
+  2. Fachlich pruefen, ob der neue Run vergleichbar ist.
+  3. Run-zu-Run-Vergleich gegen den vorherigen vergleichbaren Run ausfuehren.
+  4. Auffaelligkeiten manuell pruefen.
+* Bei stabilen Ergebnissen weiter beobachten.
+* Bei starken Aenderungen nicht automatisch handeln, sondern Gruende pruefen.
+
+Moeglicher naechster sinnvoller Schritt:
+
+* Phase 7 kann nun in den beobachtenden Paper-Betrieb uebergehen.
+* Weitere Code-Erweiterungen sollten nur erfolgen, wenn mehrere neue Paper-Runs vorliegen oder konkrete Report-Luecken sichtbar werden.
+* Ein spaeterer Schritt koennte ein Multi-Run-Verlaufsvergleich sein, aber erst wenn ausreichend vergleichbare Runs vorhanden sind.
+* Aktuell ist kein zusaetzlicher Automatisierungsschritt zwingend noetig.
+
+Sicherheitsabgrenzung:
+
+* kein Broker
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Batch-Verarbeitung von Runs
+* keine automatische Paper-Run-Ausfuehrung
+* keine Personen-/Mandantenverwaltung
+* keine Investitionsfreigabe
+* keine Handlungsempfehlung
