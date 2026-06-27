@@ -135,6 +135,16 @@ Wenn der Paper-Runner beim Start ein anderes `output_dir` ausweist, muss `--runs
 auf das tatsaechliche Basisverzeichnis dieser Runs zeigen, zum Beispiel auf das
 gemeldete `...\AiAgents\automation_runs`.
 
+## Zwei vorhandene Paper-Reports vergleichen
+
+Zwei bereits vorhandene Paper-Reports koennen neutral miteinander verglichen werden:
+
+[CODE_START]
+.venv\Scripts\python.exe -m scripts.compare_paper_runs --previous-report "<previous>\paper_run_report.json" --current-report "<current>\paper_run_report.json" --out-dir reports\paper_run_comparison
+[CODE_END]
+
+Der Vergleich liest nur die zwei explizit uebergebenen Dateien. Er startet keine Paper-Runs, fuehrt keine Batch-Verarbeitung ein, erzeugt keine Orders, verbindet keinen Broker und erteilt keine Investitionsfreigabe.
+
 ## Beispiel aus Kontrolllauf
 
 Erfolgreicher Kontrolllauf:

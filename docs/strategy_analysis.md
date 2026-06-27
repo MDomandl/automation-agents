@@ -7090,3 +7090,96 @@ Auch die naechste Vergleichsstufe bleibt ein reines Analyse- und Dokumentationsa
 * keine Investitionsfreigabe
 
 Qualitaetssicherung: Fuer diese Phase wurden keine Tests ausgefuehrt, weil ausschliesslich vorhandene Artefakte fachlich geprueft und Dokumentation ergaenzt wurden. Es gab keine Codeaenderung.
+
+## 07.80 Run-zu-Run-Vergleich vorhandener Paper-Reports
+
+Ziel dieses Abschnitts ist ein neutraler Vergleich zweier bereits vorhandener `paper_run_report.json`-Artefakte. Der Vergleich startet keine Paper-Runs, durchsucht keine Run-Verzeichnisse und fuehrt keine Batch-Verarbeitung ein. Die beiden Report-Dateien werden explizit uebergeben.
+
+Vor der Umsetzung wurden die vorhandenen Report-Strukturen geprueft:
+
+* `target_positions` enthaelt Zielgewichte je Symbol.
+* `buy_proposals`, `sell_proposals` und `hold_proposals` enthalten Proposal-Zeilen mit `ticker`, `previous_weight`, `target_weight` und `delta_weight`.
+* `previous_weight` dient im Vergleich als lokales Vergleichsgewicht.
+* `reports/paper_run_history/paper_run_history.json` enthaelt Run-Metadaten, Proposal-Zaehler, Portfolio-Referenzen und Pfade, aber keine vollstaendigen Symbolvergleiche.
+* Hilfslogik aus `scripts.collect_paper_run_history` wird nur fuer die Run-Metadaten-Zusammenfassung wiederverwendet. Der eigentliche Run-zu-Run-Vergleich bleibt auf zwei explizite Report-Dateien begrenzt.
+
+Neu angelegte Vergleichslogik:
+
+```bash
+python -m scripts.compare_paper_runs --previous-report <previous-paper_run_report.json> --current-report <current-paper_run_report.json> --out-dir reports/paper_run_comparison
+```
+
+Das Skript erzeugt:
+
+* `reports/paper_run_comparison/paper_run_comparison.json`
+* `reports/paper_run_comparison/paper_run_comparison.md`
+
+Der Vergleich macht sichtbar:
+
+* neue Symbole
+* entfernte Symbole
+* gemeinsame Symbole
+* Zielgewicht vorher/nachher und Richtung
+* lokales Vergleichsgewicht vorher/nachher
+* Delta vorher/nachher und Richtung
+* Proposal-Klasse vorher/nachher
+* Proposal-Wechsel
+* auffaellige Zielgewichtsspruenge ab `--max-jump-threshold`, standardmaessig `0.05`
+* Metadatenunterschiede und fehlende optionale Felder als Warnungen
+
+Verwendete Reports fuer den Kontrolllauf:
+
+* Previous: `D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-21_22-45-55_short_paper\paper_run_report.json`
+* Current: `D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-27_15-34-57_short_paper\paper_run_report.json`
+
+Ausgefuehrtes Vergleichskommando:
+
+```bash
+.venv\Scripts\python.exe -m scripts.compare_paper_runs --previous-report "D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-21_22-45-55_short_paper\paper_run_report.json" --current-report "D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-27_15-34-57_short_paper\paper_run_report.json" --out-dir reports\paper_run_comparison
+```
+
+Ergebnis des Kontrolllaufs:
+
+* neue Symbole: `0`
+* entfernte Symbole: `0`
+* gemeinsame Symbole: `9`
+* Proposal-Wechsel: `0`
+* Zielgewichtsaenderungen: `0`
+* Delta-Aenderungen: `0`
+* auffaellige Zielgewichtsspruenge: `0`
+* Warnungen: `0`
+
+Alle geprueften Metadaten waren zwischen den beiden Reports gleich:
+
+* `runner_mode = paper`
+* Profil `short`
+* Strategieprofil `balanced_v1`
+* `as_of = 2025-10-08`
+* Portfolio-Datei `portfolios\example_local_portfolio.csv`
+* Portfolio-Name `example_local`
+* Proposal-Toleranz `0.00001`
+
+Die neun gemeinsamen Symbole waren in beiden Reports unveraendert: `CVS`, `DASH`, `EBAY`, `GE`, `IVZ`, `NEM`, `PLTR`, `PSKY`, `WDC`.
+
+Qualitaetssicherung:
+
+```bash
+.venv\Scripts\python.exe -m pytest tests\unit\scripts\test_compare_paper_runs.py
+.venv\Scripts\python.exe -m pytest tests\unit\scripts\test_collect_paper_run_history.py
+.venv\Scripts\python.exe -m ruff check scripts\compare_paper_runs.py tests\unit\scripts\test_compare_paper_runs.py scripts\collect_paper_run_history.py tests\unit\scripts\test_collect_paper_run_history.py
+```
+
+Sicherheitsabgrenzung:
+
+* keine neuen Paper-Runs
+* keine Batch-Verarbeitung
+* keine automatische Ausfuehrung mehrerer Runs
+* keine Runner-Logikaenderung
+* keine Backtest-, Strategie- oder Portfolio-Berechnungsaenderung
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+* keine Investitionsfreigabe
