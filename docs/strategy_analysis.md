@@ -6885,3 +6885,91 @@ Die Sicherheitsgrenzen bleiben unveraendert:
 * keine Gewichtungsnormalisierung
 * keine Personen- oder Mandantenverwaltung
 * keine Investitionsfreigabe
+
+## 07.60 Paper-Run-History Collector Kontrolllauf mit echtem Paper-Artefakt
+
+Ziel dieses Kontrolllaufs war, genau einen lokalen Paper-Einzelrun mit dem bekannten Beispielportfolio zu erzeugen und den Paper-Run-History Collector danach gegen ein echtes vorhandenes Paper-Artefakt laufen zu lassen.
+
+Vorab wurde geprueft:
+
+* `docs/paper_runner_workflow.md` dokumentiert lokale Paper-Runs mit `--runner-mode paper`, `--portfolio-file` und optional `--portfolio-name`.
+* `scripts/run_bt_run_agent.py` legt Run-Artefakte unter `D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\<run_label>` ab.
+* `portfolios/example_local_portfolio.csv` ist vorhanden.
+* `balanced_v1` ist als geeignetes Strategieprofil fuer den Kontrolllauf dokumentiert.
+
+Ausgefuehrtes Paper-Run-Kommando:
+
+```bash
+.venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file portfolios\example_local_portfolio.csv --portfolio-name example_local
+```
+
+Erzeugter Run-Ordner:
+
+```text
+D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-27_15-34-57_short_paper
+```
+
+Erzeugtes Paper-Artefakt:
+
+```text
+D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs\2026-06-27_15-34-57_short_paper\paper_run_report.json
+```
+
+Der Paper-Report enthaelt fuer den Kontrolllauf:
+
+* `run_id`: `20260627_153457`
+* `runner_mode`: `paper`
+* `strategy_profile_name`: `balanced_v1`
+* `portfolio_name`: `example_local`
+* `portfolio_file_display`: `portfolios\example_local_portfolio.csv`
+* `orders_executed`: `false`
+* `broker_connected`: `false`
+* `live_trading_enabled`: `false`
+
+Ausgefuehrtes Collector-Kommando:
+
+```bash
+.venv\Scripts\python.exe -m scripts.collect_paper_run_history --runs-dir "D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs" --out-dir reports\paper_run_history --strategy-profile balanced_v1
+```
+
+Erzeugte beziehungsweise aktualisierte History-Artefakte:
+
+* `reports/paper_run_history/paper_run_history.json`
+* `reports/paper_run_history/paper_run_history.md`
+
+Collector-Ergebnis:
+
+* `total_reports_found`: `5`
+* `total_reports_included`: `5`
+* `total_reports_skipped`: `0`
+* Der Kontrolllauf `2026-06-27_15-34-57_short_paper` erscheint in der Run-Tabelle.
+* Der Lauf ist als `paper` mit Strategieprofil `balanced_v1` und Portfolio `example_local` nachvollziehbar.
+* Die Sicherheitsgrenzen bleiben im History-Markdown sichtbar.
+
+Qualitaetssicherung:
+
+```bash
+.venv\Scripts\python.exe -m pytest tests\unit\scripts\test_collect_paper_run_history.py
+.venv\Scripts\python.exe -m ruff check scripts\collect_paper_run_history.py tests\unit\scripts\test_collect_paper_run_history.py
+```
+
+Ergebnis:
+
+* `10 passed`
+* `All checks passed!`
+
+Abgrenzung:
+
+* genau ein Paper-Run wurde gestartet
+* Collector liest nur vorhandene Artefakte
+* keine Batch-Verarbeitung eingefuehrt
+* keine automatische Ausfuehrung mehrerer Runs eingefuehrt
+* keine Runner-Logik geaendert
+* keine Backtest-, Strategie- oder Portfolio-Berechnung geaendert
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+* keine Investitionsfreigabe

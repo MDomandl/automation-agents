@@ -129,6 +129,10 @@ python -m scripts.collect_paper_run_history --runs-dir automation_runs --out-dir
 
 Der Collector liest nur vorhandene `paper_run_report.json`-Dateien. Er startet keinen Runner, erzeugt keine Orders, verbindet keinen Broker und erteilt keine Investitionsfreigabe.
 
+Wenn der Paper-Runner beim Start ein anderes `output_dir` ausweist, muss `--runs-dir`
+auf das tatsaechliche Basisverzeichnis dieser Runs zeigen, zum Beispiel auf das
+gemeldete `...\AiAgents\automation_runs`.
+
 ## Beispiel aus Kontrolllauf
 
 Erfolgreicher Kontrolllauf:
