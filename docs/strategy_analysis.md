@@ -6849,3 +6849,39 @@ Als moegliches Zielbild fuer spaetere Schritte koennen zusaetzliche Artefakte en
 * optional Verlauf ueber mehrere Runs
 
 Diese Artefakte werden hier nur fachlich beschrieben. Sie werden in diesem Schritt nicht implementiert und nicht erzeugt.
+
+## 07.50 Paper-Run-History Reader / Collector
+
+Ziel dieses Abschnitts ist ein kleiner defensiver Reader fuer bestehende Paper-Run-Artefakte.
+
+Der Collector liest rekursiv vorhandene `paper_run_report.json`-Dateien unter einem Run-Basisverzeichnis, standardmaessig `automation_runs`. Er startet keine Paper-Runs, ruft keine Runner-Logik auf und veraendert keine Backtest-, Runner- oder Proposal-Berechnung.
+
+Er erzeugt neutrale History-Artefakte:
+
+* `reports/paper_run_history/paper_run_history.json`
+* `reports/paper_run_history/paper_run_history.md`
+
+Die Artefakte enthalten eine Uebersicht ueber gefundene und einbezogene Paper-Reports, wichtige Run-Metadaten, Proposal-Zaehler, Portfolio-Referenzen, vorhandene Portfolio Checks, Sicherheitsfelder und Human-Review-Hinweise. Ungueltige JSON-Dateien oder nicht als Paper-Reports erkennbare Dateien werden uebersprungen und als Warnung dokumentiert.
+
+Beispiel:
+
+```bash
+python -m scripts.collect_paper_run_history --runs-dir automation_runs --out-dir reports/paper_run_history --strategy-profile balanced_v1
+```
+
+Optional kann zusaetzlich nach `--profile` gefiltert werden. Fehlt ein Feld, das fuer einen aktiven Filter benoetigt wird, wird der betroffene Report uebersprungen und mit Warnung dokumentiert.
+
+Der Collector dient nur der Nachvollziehbarkeit und manuellen Pruefung bestehender Paper-Run-Reports. Er erzeugt keine Bewertung, keine Handlungsempfehlung und keine Investitionsfreigabe.
+
+Die Sicherheitsgrenzen bleiben unveraendert:
+
+* keine neuen Paper-Runs
+* keine automatische Paper-Run-Ausfuehrung
+* keine Batch-Verarbeitung von Runs
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+* keine Investitionsfreigabe

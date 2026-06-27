@@ -119,6 +119,16 @@ Diese Klassifikation enthält keine Stückzahlen, keine Euro-Beträge und keine 
 * Manuelle Prüfung erforderlich.
 * Persönliche Verantwortung bleibt beim Menschen.
 
+## Paper-Run-History sammeln
+
+Bestehende Paper-Reports koennen ohne neue Paper-Runs zu einer neutralen History-Uebersicht zusammengefasst werden:
+
+[CODE_START]
+python -m scripts.collect_paper_run_history --runs-dir automation_runs --out-dir reports/paper_run_history --strategy-profile balanced_v1
+[CODE_END]
+
+Der Collector liest nur vorhandene `paper_run_report.json`-Dateien. Er startet keinen Runner, erzeugt keine Orders, verbindet keinen Broker und erteilt keine Investitionsfreigabe.
+
 ## Beispiel aus Kontrolllauf
 
 Erfolgreicher Kontrolllauf:
