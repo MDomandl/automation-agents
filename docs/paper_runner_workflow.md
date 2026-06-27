@@ -129,6 +129,8 @@ python -m scripts.collect_paper_run_history --runs-dir automation_runs --out-dir
 
 Der Collector liest nur vorhandene `paper_run_report.json`-Dateien. Er startet keinen Runner, erzeugt keine Orders, verbindet keinen Broker und erteilt keine Investitionsfreigabe.
 
+Vor Run-zu-Run-Vergleichen sollte die erzeugte History fachlich auf Vergleichbarkeit geprueft werden, insbesondere hinsichtlich Profil, Strategieprofil, `as_of`, Portfolio-Datei, Portfolio-Name, Proposal-Toleranz, Portfolio Checks und Sicherheitsfeldern.
+
 Wenn der Paper-Runner beim Start ein anderes `output_dir` ausweist, muss `--runs-dir`
 auf das tatsaechliche Basisverzeichnis dieser Runs zeigen, zum Beispiel auf das
 gemeldete `...\AiAgents\automation_runs`.

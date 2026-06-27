@@ -6973,3 +6973,120 @@ Abgrenzung:
 * keine Gewichtungsnormalisierung
 * keine Personen- oder Mandantenverwaltung
 * keine Investitionsfreigabe
+
+## 07.70 History-Report fachlich pruefen & naechste Vergleichsstufe festlegen
+
+Ziel dieses Abschnitts ist die fachliche Pruefung der erzeugten Paper-Run-History. Die Pruefung klaert, ob die einbezogenen Reports nur technisch gesammelt wurden oder auch fachlich sinnvoll vergleichbar sind. Ausserdem wird festgelegt, welche naechste Vergleichsstufe auf Basis vorhandener Paper-Reports sinnvoll ist.
+
+Gepruefte Artefakte:
+
+* `reports/paper_run_history/paper_run_history.json`
+* `reports/paper_run_history/paper_run_history.md`
+
+### Ergebnis der Artefaktpruefung
+
+Der History-Report wurde gegen das tatsaechliche Run-Basisverzeichnis `D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents\automation_runs` erzeugt.
+
+Die Zusammenfassung ist technisch konsistent:
+
+* `total_reports_found`: `5`
+* `total_reports_included`: `5`
+* `total_reports_skipped`: `0`
+* `warnings`: keine
+
+Einbezogene Run-Ordner beziehungsweise Run-Labels:
+
+* `2026-06-14_01-10-45_short_paper`
+* `2026-06-14_23-14-21_short_paper`
+* `2026-06-18_20-32-51_short_paper`
+* `2026-06-21_22-45-55_short_paper`
+* `2026-06-27_15-34-57_short_paper`
+
+Alle fuenf einbezogenen Reports haben:
+
+* Profil `short`
+* Strategieprofil `balanced_v1`
+* Strategieprofil-Label `Balanced v1`
+* `runner_mode = paper`
+* `as_of = 2025-10-08`
+* vorhandene Sicherheitsfelder
+* vorhandene Human-Review-Hinweise
+
+Die Proposal-Zaehlungen und Portfolio-Metadaten unterscheiden sich jedoch:
+
+| Run | Portfolio-Datei | Portfolio-Name | Toleranz | Buy | Sell | Hold | Checks |
+|---|---|---|---:|---:|---:|---:|---|
+| `2026-06-14_01-10-45_short_paper` | nicht gesetzt | nicht gesetzt | nicht gesetzt | 2 | 2 | 7 | nein |
+| `2026-06-14_23-14-21_short_paper` | `examples\paper_portfolio_positions.csv` | nicht gesetzt | nicht gesetzt | 9 | 2 | 0 | nein |
+| `2026-06-18_20-32-51_short_paper` | `examples\paper_portfolio_positions.csv` | nicht gesetzt | `0.00001` | 2 | 2 | 7 | nein |
+| `2026-06-21_22-45-55_short_paper` | `portfolios\example_local_portfolio.csv` | `example_local` | `0.00001` | 9 | 0 | 0 | ja |
+| `2026-06-27_15-34-57_short_paper` | `portfolios\example_local_portfolio.csv` | `example_local` | `0.00001` | 9 | 0 | 0 | ja |
+
+### Einschaetzung der Vergleichbarkeit
+
+Die fuenf Reports sind technisch einbezogen und grundsaetzlich als Paper-Run-History lesbar. Fachlich sind sie aber nicht alle gleich stark vergleichbar.
+
+**Technisch einbezogen:** Alle fuenf Reports wurden korrekt gefunden, als Paper-Reports erkannt und in die History aufgenommen. Es gibt keine Collector-Warnungen und keine uebersprungenen Reports.
+
+**Fachlich gut vergleichbar:** Die beiden letzten Runs `2026-06-21_22-45-55_short_paper` und `2026-06-27_15-34-57_short_paper` erscheinen am besten vergleichbar. Sie verwenden denselben Modus, dasselbe Profil, dasselbe Strategieprofil, dasselbe `as_of`, dieselbe Portfolio-Datei `portfolios\example_local_portfolio.csv`, denselben Portfolio-Namen `example_local`, dieselbe Proposal-Toleranz `0.00001`, vorhandene Portfolio-Checks, Sicherheitsfelder und Human-Review-Hinweise. Auch die aggregierten Proposal-Zaehlungen sind identisch mit 9 Buy, 0 Sell und 0 Hold.
+
+**Nur eingeschraenkt vergleichbar:** Die ersten drei Runs sind technisch enthalten und teilen wichtige Rahmenbedingungen wie `runner_mode = paper`, Profil `short`, Strategieprofil `balanced_v1` und `as_of = 2025-10-08`. Sie unterscheiden sich aber bei Portfolio-Referenz, Portfolio-Name, Proposal-Toleranz und Portfolio-Checks. Dadurch eignen sie sich eher fuer eine historische Einordnung der Reporterweiterung als fuer einen strengen Run-zu-Run-Fachvergleich.
+
+**Nicht direkt vergleichbar:** Der erste Run hat keine Portfolio-Datei, keinen Portfolio-Namen, keine Proposal-Toleranz und keine Portfolio-Checks. Er kann nicht als direkte Vergleichsbasis fuer aktuelle lokale Portfolio-File-Runs gewertet werden. Auch der zweite Run ist wegen fehlender Toleranz und fehlender Portfolio-Checks nur eingeschraenkt mit den spaeteren Runs vergleichbar.
+
+### Luecken und Auffaelligkeiten
+
+Festgestellte Luecken beziehungsweise Auffaelligkeiten:
+
+* Portfolio-Referenzen sind uneinheitlich: kein Portfolio, `examples\paper_portfolio_positions.csv` und `portfolios\example_local_portfolio.csv`.
+* Portfolio-Namen fehlen in den ersten drei Runs und sind erst in den letzten zwei Runs als `example_local` vorhanden.
+* Proposal-Toleranz fehlt in den ersten zwei Runs und ist erst ab `2026-06-18_20-32-51_short_paper` als `0.00001` sichtbar.
+* Portfolio-Checks fehlen in den ersten drei Runs und sind erst in den letzten zwei Runs vorhanden.
+* Die Proposal-Zaehlungen springen zwischen 2/2/7, 9/2/0 und 9/0/0. Das kann aus geaenderten Portfolio-Eingaben oder Report-Feldverfuegbarkeit entstehen und sollte nicht ohne Kontext als Strategieaenderung interpretiert werden.
+* Die Run-IDs sind technisch ableitbar und vorhanden, aber fuer die fachliche Lesbarkeit sind die Run-Labels aussagekraeftiger, weil sie Datum, Uhrzeit, Profil und Modus enthalten.
+* Sicherheitsfelder und Human-Review-Hinweise sind in allen fuenf Runs vorhanden und damit fuer die Sicherheitsabgrenzung konsistent.
+* Fuer spaetere Vergleiche koennten zusaetzliche Felder hilfreich sein, insbesondere explizite Symbol-Listen je Proposal-Klasse, Zielgewichte je Symbol, Vergleichsgewichte je Symbol, Deltas je Symbol, Delta-Basis, Portfolio-Check-Details und gegebenenfalls eine markierte Vergleichbarkeitsklasse pro Run-Paar.
+
+### Entscheidung fuer die naechste Vergleichsstufe
+
+Die naechste sinnvolle Stufe ist ein neutraler Run-zu-Run-Vergleich zweier vorhandener Paper-Reports.
+
+Dabei soll kein neuer Paper-Run automatisch gestartet werden. Die Vergleichsbasis sind ausschliesslich vorhandene `paper_run_report.json`-Artefakte.
+
+Als erster fachlich sinnvoller Vergleich bietet sich an:
+
+* letzter einbezogener Run: `2026-06-27_15-34-57_short_paper`
+* direkt vorheriger vergleichbarer Run: `2026-06-21_22-45-55_short_paper`
+
+Dieser Paarvergleich ist sinnvoll, weil beide Runs dieselbe Portfolio-Datei, denselben Portfolio-Namen, dieselbe Toleranz, Portfolio-Checks, Sicherheitsfelder und Human Review enthalten.
+
+Der spaetere Run-zu-Run-Vergleich soll sichtbar machen:
+
+* neue Symbole
+* entfernte Symbole
+* durchgehend vorhandene Symbole
+* Buy/Sell/Hold-Wechsel
+* Zielgewichtsaenderungen
+* Delta-Veraenderungen
+* auffaellige Spruenge
+
+Der Vergleich bleibt neutral. Er erzeugt keine Handlungsempfehlung, keine automatische Bewertung als gut oder schlecht und keine Investitionsfreigabe.
+
+### Sicherheitsabgrenzung
+
+Auch die naechste Vergleichsstufe bleibt ein reines Analyse- und Dokumentationsartefakt:
+
+* keine neuen Paper-Runs
+* keine Batch-Verarbeitung
+* keine automatische Ausfuehrung mehrerer Runs
+* keine Runner-Logikaenderung
+* keine Backtest-, Strategie- oder Portfolio-Berechnungsaenderung
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Personen- oder Mandantenverwaltung
+* keine Investitionsfreigabe
+
+Qualitaetssicherung: Fuer diese Phase wurden keine Tests ausgefuehrt, weil ausschliesslich vorhandene Artefakte fachlich geprueft und Dokumentation ergaenzt wurden. Es gab keine Codeaenderung.
