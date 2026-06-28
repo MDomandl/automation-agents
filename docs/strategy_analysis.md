@@ -7808,3 +7808,253 @@ Eine spaetere Umsetzung auf Basis dieses Datenmodells sollte einen Replay-Verlau
 * Welche Aussagen stammen aus historischer Simulation und welche bleiben dem echten Paper-Betrieb vorbehalten?
 
 Damit schafft 08.20 die fachliche Grundlage fuer spaetere Replay-Konzeption und technische Umsetzung.
+
+## 08.30 Historischer Paper-Replay: Replay-Zeitachse, Stichtagslogik & Marktphasen
+
+### Ziel von 08.30
+
+08.30 beschreibt die fachliche Zeitachse fuer einen spaeteren historischen Paper-Replay.
+
+Ziel ist es, vor einer technischen Umsetzung festzulegen, wie Replay-Stichtage, Betrachtungszeitraeume und Marktphasen sauber abgegrenzt werden sollen.
+
+Damit soll verhindert werden, dass spaetere Ergebnisse durch nachtraegliche Zeitraumauswahl, unklare Stichtage oder unsaubere Marktphasen-Zuordnung verzerrt werden.
+
+08.30 bleibt reine Markdown-Dokumentation.
+
+### Grundsatz der Replay-Zeitachse
+
+Der historische Paper-Replay soll einen zusammenhaengenden historischen Zeitraum betrachten.
+
+Der Zeitraum soll nicht nachtraeglich so gewaehlt werden, dass `balanced_v1` besonders gut aussieht. Er muss vor der Auswertung fachlich begruendet und dokumentiert werden.
+
+Der Replay soll insbesondere sichtbar machen:
+
+* wie stabil Zielpositionen ueber Zeit bleiben
+* wie haeufig neue oder entfernte Symbole entstehen
+* wie stark Zielgewichte schwanken
+* wie ruhig oder wechselhaft Proposals sind
+* ob bestimmte Marktphasen auffaellige Muster erzeugen
+* wie sich `balanced_v1` gegenueber einer einfachen Benchmark einordnet
+
+Der Replay ist damit eine Verlaufspruefung, keine Ergebnisoptimierung.
+
+### Betrachtungshorizont
+
+Fuer Phase 8 ist ein historischer Betrachtungshorizont von 24 bis 36 Monaten sinnvoll.
+
+| Zeitraum | Zweck |
+| --- | --- |
+| 24 Monate | Kompakte Replay-Strecke mit ausreichend vielen Stichtagen fuer erste Stabilitaetsaussagen |
+| 36 Monate | Erweiterte Replay-Strecke mit hoeherer Chance, unterschiedliche Marktphasen abzudecken |
+| Weniger als 12 Monate | Fuer Phase 8 nicht ausreichend belastbar |
+| Mehr als 36 Monate | Moeglicherweise sinnvoll, aber fuer eine erste Replay-Stufe schwerer manuell pruefbar |
+
+Ein Zeitraum von 24 bis 36 Monaten ist ein pragmatischer Kompromiss zwischen Aussagekraft, Verstaendlichkeit und manueller Pruefbarkeit.
+
+### Stichtagslogik
+
+Der Replay soll auf regelmaessig wiederkehrenden historischen Stichtagen basieren.
+
+Als fachlicher Standard bieten sich Monatsstichtage an, weil sie gut zum bisherigen Rebalancing- und Paper-Gedanken passen.
+
+| Stichtagsart | Bewertung |
+| --- | --- |
+| Monatlich | Fachlich sinnvoller Standard fuer Phase 8 |
+| Woechentlich | Detaillierter, aber deutlich lauter und schwerer auszuwerten |
+| Quartalsweise | Ruhiger, aber moeglicherweise zu grob fuer Proposal- und Positionswechsel |
+| Ereignisbasiert | Fuer spaetere Sonderanalysen denkbar, aber nicht als Standard fuer 08.xx |
+
+Fuer die erste Replay-Konzeption soll daher eine monatliche Stichtagslogik als Ausgangspunkt dienen.
+
+### Anforderungen an Replay-Stichtage
+
+Ein Replay-Stichtag soll nur dann verwendet werden, wenn er nachvollziehbar und auswertbar ist.
+
+Fachliche Mindestanforderungen:
+
+| Anforderung | Bedeutung |
+| --- | --- |
+| eindeutiges `as_of` | Der historische Bewertungsstichtag muss klar bestimmt sein |
+| konsistente Datenbasis | Die Eingangsdaten muessen fuer den Stichtag auswertbar sein |
+| reproduzierbare Profilwahl | Das verwendete Strategieprofil muss eindeutig sein |
+| reproduzierbares Zeitprofil | Das Zeitprofil muss eindeutig dokumentiert sein |
+| eindeutiges Universe | Das verwendete Aktienuniversum muss nachvollziehbar sein |
+| vergleichbarer Vorgaenger | Fuer Verlaufskennzahlen sollte ein vorheriger Replay-Stichtag existieren |
+| dokumentierter Datenstatus | Datenluecken oder Einschraenkungen muessen sichtbar bleiben |
+
+Nicht jeder historische Kalendertag eignet sich automatisch als Replay-Stichtag.
+
+Falls ein Monatsstichtag nicht auswertbar ist, muss spaeter fachlich geregelt werden, ob der naechstgeeignete Handelstag verwendet oder der Stichtag uebersprungen wird.
+
+### Startpunkt und Warmup-Abgrenzung
+
+Der Replay-Zeitraum darf nicht mit dem notwendigen Warmup-Zeitraum verwechselt werden.
+
+| Ebene | Bedeutung |
+| --- | --- |
+| Warmup-Zeitraum | Historische Vorlaufdaten, die zur Berechnung von Indikatoren und Selektion benoetigt werden |
+| Replay-Zeitraum | Zeitraum, in dem Paper-aehnliche Stichtage ausgewertet und verglichen werden |
+| Benchmark-Zeitraum | Vergleichszeitraum fuer die Referenzentwicklung |
+| Report-Zeitraum | Zeitraum, der im spaeteren Replay-Report zusammengefasst wird |
+
+Der Warmup-Zeitraum dient nur der Berechnung. Er darf nicht als zusaetzlicher ausgewerteter Replay-Zeitraum gezaehlt werden.
+
+Beispielhafte fachliche Trennung:
+
+| Bestandteil | Beispielhafte Bedeutung |
+| --- | --- |
+| Warmup-Start | Beginn der benoetigten historischen Vorlaufdaten |
+| Replay-Start | Erster ausgewerteter historischer Paper-Stichtag |
+| Replay-Ende | Letzter ausgewerteter historischer Paper-Stichtag |
+| Benchmark-Start | Beginn des Vergleichszeitraums, ueblicherweise Replay-Start |
+| Benchmark-Ende | Ende des Vergleichszeitraums, ueblicherweise Replay-Ende |
+
+Diese Trennung schuetzt vor irrefuehrenden Aussagen.
+
+### Marktphasen-Zuordnung
+
+Der historische Replay soll Marktphasen beruecksichtigen, ohne sie zur nachtraeglichen Optimierung zu verwenden.
+
+Marktphasen dienen der Erklaerung von Verlaufsmustern, nicht der Auswahl guenstiger Zeitraeume.
+
+Moegliche Marktphasen:
+
+| Marktphase | Zweck der Betrachtung |
+| --- | --- |
+| Schwaechephase | Pruefung von Drawdown, Stabilitaet und Rotation |
+| Erholungsphase | Pruefung von Positionsaufbau und Reaktionsfaehigkeit |
+| Seitwaertsphase | Pruefung von Signalruhe und unnoetiger Rotation |
+| starke Marktphase | Pruefung, ob Chancen genutzt werden |
+| Rotationsphase | Pruefung von Sektor- oder Stilwechseln |
+| Uebergangsphase | Einordnung von gemischten oder schwer trennbaren Marktumfeldern |
+
+Die Zuordnung kann spaeter entweder manuell-dokumentarisch oder regelbasiert erfolgen. Fuer die erste Phase-8-Konzeption reicht eine fachlich nachvollziehbare Dokumentation.
+
+### Anforderungen an Marktphasen
+
+Marktphasen sollen vor oder spaetestens mit der Auswertung dokumentiert werden.
+
+Sie duerfen nicht nachtraeglich so angepasst werden, dass Auffaelligkeiten verschwinden oder Ergebnisse besser wirken.
+
+| Regel | Zweck |
+| --- | --- |
+| Marktphasen vorab definieren | Schutz vor Rueckschauverzerrung |
+| Zeitraeume vollstaendig dokumentieren | Nachvollziehbarkeit |
+| Mehrdeutige Phasen kenntlich machen | Verhindert Scheingenauigkeit |
+| Keine unbequemen Phasen entfernen | Schutz vor Overfitting |
+| Benchmark-Bezug erhalten | Marktumfeld bleibt einordenbar |
+| Auffaelligkeiten nicht glaetten | Schwaechen sollen sichtbar bleiben |
+
+Wenn eine Marktphase nicht eindeutig zugeordnet werden kann, ist ein neutraler oder gemischter Status besser als eine scheinbar exakte Einordnung.
+
+### Verbindung zu bestehenden Marktphasen aus Phase 4
+
+Phase 4 enthielt bereits fachliche Marktphasenbetrachtungen, unter anderem:
+
+| Phase | Einordnung |
+| --- | --- |
+| `bear_market_2022` | Schwaechephase |
+| `recovery_2023` | Erholungsphase |
+| `rotation_2024` | Rotations-/Uebergangsphase |
+
+Diese vorhandenen Begriffe koennen als Orientierung fuer Phase 8 dienen.
+
+Sie sollen aber nicht unkritisch uebernommen werden, wenn der spaetere Replay-Zeitraum abweicht oder zusaetzliche Monate umfasst.
+
+Fuer Phase 8 gilt:
+
+* vorhandene Marktphasenbegriffe duerfen wiederverwendet werden
+* ihre Zeitgrenzen muessen zum Replay-Zeitraum passen
+* zusaetzliche Phasen duerfen ergaenzt werden
+* unklare Uebergaenge muessen dokumentiert werden
+* die Marktphasen dienen der Einordnung, nicht der Optimierung
+
+### Benchmark-Zeitachse
+
+Die Benchmark-Zeitachse soll zum Replay-Zeitraum passen.
+
+Grundsatz:
+
+| Regel | Bedeutung |
+| --- | --- |
+| Benchmark-Start entspricht Replay-Start | Vergleich beginnt mit dem ersten ausgewerteten Replay-Stichtag |
+| Benchmark-Ende entspricht Replay-Ende | Vergleich endet mit dem letzten ausgewerteten Replay-Stichtag |
+| Keine nachtraegliche Benchmark-Verschiebung | Verhindert Ergebnisoptimierung |
+| Gleiche Marktphasen-Zuordnung | Erlaubt faire Einordnung |
+| Transparente Referenz | Benchmark muss einfach nachvollziehbar sein |
+
+Ein Benchmark-Vergleich ist nur dann hilfreich, wenn Zeitraum und Methode klar dokumentiert sind.
+
+### Umgang mit Luecken und Sonderfaellen
+
+Historische Daten oder Replay-Stichtage koennen Luecken oder Sonderfaelle enthalten.
+
+Diese sollen nicht stillschweigend bereinigt werden.
+
+Moegliche Sonderfaelle:
+
+| Sonderfall | Fachlicher Umgang |
+| --- | --- |
+| fehlender Stichtag | dokumentieren und ggf. naechstgeeigneten Handelstag verwenden |
+| unvollstaendige Kursdaten | als Datenstatus sichtbar machen |
+| nicht auswertbares Symbol | dokumentieren, nicht unsichtbar entfernen |
+| geaendertes Universe | klar kennzeichnen |
+| fehlender Vorgaenger-Stichtag | erste Periode nur als Startzustand auswerten |
+| Benchmark-Datenluecke | Benchmark-Einordnung einschraenken |
+| aussergewoehnliche Marktphase | gesondert kommentieren |
+
+Ziel ist nicht, einen perfekten Verlauf zu erzwingen, sondern einen ehrlichen und nachvollziehbaren Replay zu ermoeglichen.
+
+### Anti-Overfitting-Regeln fuer die Zeitachse
+
+Fuer die Replay-Zeitachse gelten klare Anti-Overfitting-Grenzen.
+
+Nicht zulaessig sind:
+
+| Nicht zulaessig | Begruendung |
+| --- | --- |
+| Zeitraum nach Ergebnis auswaehlen | Rueckschaufehler |
+| Startpunkt verschieben, bis Kennzahlen besser aussehen | Ergebnisoptimierung |
+| Endpunkt nachtraeglich kuerzen | Verzerrung |
+| unbequeme Monate auslassen | Verlust der Aussagekraft |
+| Marktphasen nachtraeglich umdeuten | Scheinerklaerung |
+| Benchmark-Zeitraum abweichend waehlen | unfairer Vergleich |
+| Sonderfaelle stillschweigend bereinigen | fehlende Nachvollziehbarkeit |
+
+Der Replay soll robuste Fragen beantworten, nicht ein moeglichst gutes Bild erzeugen.
+
+### Abgrenzung von 08.30
+
+08.30 bleibt ausschliesslich Dokumentation.
+
+In diesem Schritt werden nicht umgesetzt:
+
+* keine Codeaenderungen
+* keine Tests
+* keine neuen Skripte
+* keine Runner-Aenderungen
+* keine Paper-Runs
+* keine Replay-Laeufe
+* keine Benchmark-Berechnungen
+* keine Artefakte
+* keine automatische Marktphasen-Erkennung
+* keine Investitionsfreigabe
+
+Die konkrete technische Umsetzung kann erst in spaeteren 08.xx-Schritten geplant werden.
+
+### Erwartetes Ergebnis fuer spaetere Schritte
+
+Nach 08.30 ist fachlich klarer, wie ein spaeterer Replay zeitlich aufgebaut werden soll.
+
+Die spaeteren Umsetzungsschritte sollen auf dieser Grundlage beantworten koennen:
+
+* Welcher historische Zeitraum wird betrachtet?
+* Welche Stichtage werden verwendet?
+* Wie werden nicht auswertbare Stichtage behandelt?
+* Wie wird der Warmup-Zeitraum vom Replay-Zeitraum getrennt?
+* Wie wird die Benchmark-Zeitachse abgegrenzt?
+* Welche Marktphasen werden betrachtet?
+* Wie werden Luecken, Sonderfaelle und Uebergaenge dokumentiert?
+* Wie wird verhindert, dass die Replay-Zeitachse nachtraeglich optimiert wird?
+
+Damit schafft 08.30 die fachliche Grundlage fuer eine saubere, nachvollziehbare und nicht nachtraeglich geschoente Replay-Auswertung.
