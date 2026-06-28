@@ -7274,3 +7274,537 @@ Sicherheitsabgrenzung:
 * keine Personen-/Mandantenverwaltung
 * keine Investitionsfreigabe
 * keine Handlungsempfehlung
+
+## 07.95 Paper-Betrieb: Ablauf, Checkliste & Proposal-Abgrenzung
+
+Zweck dieses Abschnitts ist eine praktische Betriebscheckliste fuer Phase 7. Der Abschnitt beschreibt den wiederholbaren Ablauf nach einem neuen einzelnen Paper-Run und grenzt klar ab, wie Buy/Sell/Hold-Proposals im Projekt zu verstehen sind.
+
+Ziel ist kontrollierte Beobachtung, nicht automatische Umsetzung.
+
+### Paper-Betrieb: Grundprinzip
+
+Paper-Betrieb bedeutet nicht automatisches Trading. Paper-Betrieb bedeutet wiederholte lokale Einzelruns mit anschliessender Auswertung.
+
+Ein neuer Paper-Run wird bewusst gestartet, zum Beispiel monatlich oder nach einem klaren Datenupdate. Es wird nicht kuenstlich haeufig neu gerechnet. Jeder Lauf bleibt ein einzelner lokaler Paper-Run.
+
+Der Lauf erzeugt Analyseartefakte, aber keine Orders.
+
+### Standardablauf nach einem neuen Paper-Run
+
+1. Einzelnen Paper-Run ausfuehren.
+2. Pruefen, ob `paper_run_report.json` erzeugt wurde.
+3. History-Collector ausfuehren.
+4. `paper_run_history.md` pruefen.
+5. Pruefen, ob der neue Run fachlich vergleichbar ist.
+6. Run-zu-Run-Vergleich gegen den vorherigen vergleichbaren Run ausfuehren.
+7. `paper_run_comparison.md` pruefen.
+8. Auffaelligkeiten manuell bewerten.
+9. Keine automatische Handlung ableiten.
+10. Ergebnis gegebenenfalls in der Projektdokumentation oder im Beobachtungslog festhalten.
+
+### Beispielkommandos
+
+Paper-Run:
+
+```bash
+.venv\Scripts\python.exe -m scripts.run_bt_run_agent --profile short --strategy-profile balanced_v1 --runner-mode paper --portfolio-file portfolios\example_local_portfolio.csv --portfolio-name example_local
+```
+
+History-Collector:
+
+```bash
+.venv\Scripts\python.exe -m scripts.collect_paper_run_history --runs-dir "<pfad-zum-automation_runs-ordner>" --out-dir reports\paper_run_history --strategy-profile balanced_v1
+```
+
+Run-zu-Run-Vergleich:
+
+```bash
+.venv\Scripts\python.exe -m scripts.compare_paper_runs --previous-report "<alter_run>\paper_run_report.json" --current-report "<neuer_run>\paper_run_report.json" --out-dir reports\paper_run_comparison
+```
+
+Pfade sind lokal anzupassen. Es wird kein Batch-Run gestartet. Der Vergleich liest nur vorhandene Reports.
+
+### Vergleichbarkeitscheck
+
+Ein neuer Run ist gut vergleichbar, wenn die fachlichen und technischen Rahmenbedingungen gleich oder bewusst nachvollziehbar dokumentiert sind:
+
+* `runner_mode = paper`
+* gleiches Profil, zum Beispiel `short`
+* gleiches Strategieprofil, insbesondere `balanced_v1`
+* gleicher oder bewusst nachvollziehbarer `as_of`
+* gleiche oder bewusst dokumentierte Portfolio-Datei
+* gleicher oder bewusst dokumentierter Portfolio-Name
+* konsistente Proposal-Toleranz
+* vorhandene Portfolio-Checks
+* vorhandene Sicherheitsfelder
+* vorhandene Human-Review-Hinweise
+
+Falls diese Punkte nicht erfuellt sind:
+
+* Run nicht automatisch interpretieren.
+* Vergleich nur eingeschraenkt bewerten.
+* Auffaelligkeiten dokumentieren.
+
+### Proposal-Abgrenzung
+
+Buy/Sell/Hold-Proposals sind im Projekt keine Anlageempfehlungen.
+
+Sie bedeuten:
+
+* `Buy`: Das Zielgewicht liegt oberhalb des Vergleichsgewichts ausserhalb der Toleranz. Dies ist ein Pruefsignal.
+* `Sell`: Das Zielgewicht liegt unterhalb des Vergleichsgewichts ausserhalb der Toleranz. Dies ist ein Pruefsignal.
+* `Hold`: Die Abweichung liegt innerhalb der Toleranz. Dies ist ein Stabilitaets-/Toleranzsignal.
+
+Ausdrueckliche Abgrenzung:
+
+* Buy bedeutet nicht "jetzt kaufen".
+* Sell bedeutet nicht "jetzt verkaufen".
+* Hold bedeutet nicht "garantiert halten".
+* Proposals sind Delta-/Gewichtungs-Pruefsignale.
+* Proposals erzeugen keine Orders.
+* Proposals erzeugen keine Stueckzahlen.
+* Proposals erzeugen keine Euro-Betraege.
+* Proposals erzeugen keine Investitionsfreigabe.
+* Human Review bleibt zwingend.
+
+### Rolle einer spaeteren KI-Auswertung
+
+Eine spaetere KI-Auswertung kann als Zielbild beim Lesen und Einordnen vorhandener Reports helfen. Das ist keine Implementierung in diesem Schritt.
+
+Eine spaetere KI-Auswertung darf:
+
+* Reports zusammenfassen.
+* Auffaelligkeiten markieren.
+* Vergleichbarkeit kommentieren.
+* Warnungen hervorheben.
+* Fragen fuer Human Review formulieren.
+
+Eine spaetere KI-Auswertung darf nicht:
+
+* Kauf-/Verkaufsempfehlungen erzeugen.
+* Orders vorbereiten.
+* Stueckzahlen oder Euro-Betraege berechnen.
+* Investitionsfreigaben geben.
+
+### Sicherheitsgrenze
+
+Fuer den Paper-Betrieb in Phase 7 gilt weiterhin:
+
+* kein Broker
+* kein Live-Trading
+* keine echten Orders
+* keine Stueckzahl- oder Euro-Berechnung
+* keine Gewichtungsnormalisierung
+* keine Batch-Verarbeitung von Runs
+* keine automatische Paper-Run-Ausfuehrung
+* keine Personen-/Mandantenverwaltung
+* keine Investitionsfreigabe
+* keine automatische Handlungsempfehlung
+
+## 08.10 Historischer Paper-Replay: Zielbild, Methodik & Grenzen
+
+### Zielbild
+
+Phase 8 erweitert den bisherigen Paper-Betrieb um eine historische Replay-Betrachtung.
+
+Ziel ist nicht, den echten Paper-Betrieb zu ersetzen oder eine Investitionsfreigabe abzuleiten. Stattdessen soll untersucht werden, wie sich das Profil `balanced_v1` in einem simulierten Paper-Betrieb ueber einen laengeren historischen Zeitraum verhalten haette.
+
+Der historische Replay soll helfen, folgende Fragen strukturierter zu beantworten:
+
+| Fragestellung | Ziel der Pruefung |
+| --- | --- |
+| Stabilitaet der Zielpositionen | Bleiben Kernpositionen ueber laengere Zeitraeume erhalten oder rotiert das Profil stark? |
+| Proposal-Wechsel | Wie haeufig wechseln Buy/Sell/Hold-Signale im Zeitverlauf? |
+| Turnover / Wechselhaeufigkeit | Entsteht ein ruhiger oder ein stark aktiver Verlauf? |
+| Verhalten ueber Marktphasen | Wie reagiert `balanced_v1` in schwachen, neutralen und starken Marktphasen? |
+| Schwaechephasen | Gibt es laengere Phasen mit auffaelliger Underperformance oder instabiler Selektion? |
+| Benchmark-/Index-Vergleich | Wie ordnet sich der simulierte Verlauf gegenueber einer einfachen Referenz ein? |
+| Abgrenzung zum echten Paper-Betrieb | Welche Erkenntnisse stammen aus historischer Simulation und welche nur aus echter Vorwaertsbeobachtung? |
+
+Der Replay soll damit die bisherige Wartezeit im echten Paper-Betrieb sinnvoll ergaenzen, aber nicht verkuerzen oder ersetzen.
+
+### Einordnung: Backtest, Replay und echter Paper-Betrieb
+
+Fuer Phase 8 ist eine klare fachliche Trennung wichtig.
+
+| Ebene | Beschreibung | Aussagekraft |
+| --- | --- | --- |
+| Backtest | Historische Strategieauswertung mit definierten Regeln und historischen Daten | Nuetzlich zur Grundpruefung, aber anfaellig fuer Overfitting und Rueckschaufehler |
+| Historischer Paper-Replay | Simulierter Paper-Betrieb ueber historische Stichtage mit Fokus auf Reports, Zielgewichte, Deltas und Proposal-Verhalten | Nuetzlich zur Stabilitaets- und Prozesspruefung, aber weiterhin historisch |
+| Echter Paper-Betrieb | Laufender Vorwaertsbetrieb mit jeweils aktuellem Stichtag und manueller Pruefung | Hoechste Relevanz fuer spaetere operative Einschaetzung, aber benoetigt Zeit |
+| Live-Betrieb | Reale Umsetzung mit Broker, Orders, Stueckzahlen und Kapital | In diesem Projekt ausdruecklich nicht Bestandteil der aktuellen Phasen |
+
+Der historische Replay ist damit kein zweiter Backtest im engeren Sinne, sondern eine Prozesssimulation des Paper-Betriebs auf historischen Stichtagen.
+
+Im Mittelpunkt stehen nicht nur Performancewerte, sondern vor allem:
+
+* Zielpositions-Stabilitaet
+* Wechselhaeufigkeit
+* Proposal-Verhalten
+* Delta-Verlaeufe
+* Turnover-Hinweise
+* Benchmark-Abstand
+* Auffaelligkeiten ueber Marktphasen
+
+### Methodischer Grundsatz
+
+Der historische Paper-Replay soll moeglichst nah an der spaeteren Paper-Logik bleiben, ohne neue operative Risiken einzufuehren.
+
+Fuer die methodische Betrachtung gelten folgende Leitlinien:
+
+1. Der Replay betrachtet historische Stichtage in einer definierten Zeitreihe.
+2. Fuer jeden Stichtag soll nachvollziehbar sein, welche Zielpositionen `balanced_v1` erzeugt haette.
+3. Die Auswertung soll nicht nur einzelne Endergebnisse betrachten, sondern den Verlauf zwischen den Stichtagen.
+4. Positionswechsel, Zielgewichtsaenderungen und Proposal-Wechsel sollen explizit sichtbar gemacht werden.
+5. Benchmark-Vergleiche sollen als Einordnung dienen, nicht als automatische Entscheidungsvorlage.
+6. Schwaechephasen sollen dokumentiert, aber nicht nachtraeglich wegoptimiert werden.
+7. Der echte Paper-Betrieb bleibt weiterhin erforderlich.
+
+Die zentrale Frage lautet nicht:
+
+> Haette `balanced_v1` historisch den Markt geschlagen?
+
+Sondern:
+
+> Haette sich `balanced_v1` in einem historischen Paper-aehnlichen Betrieb stabil, nachvollziehbar und kontrollierbar verhalten?
+
+### Geplanter Betrachtungshorizont
+
+Fuer Phase 8 ist ein historischer Zeitraum von ungefaehr 24 bis 36 Monaten fachlich sinnvoll.
+
+Dieser Zeitraum soll lang genug sein, um mehrere Marktphasen sichtbar zu machen, aber noch ueberschaubar genug bleiben, um die Ergebnisse manuell pruefbar und erklaerbar zu halten.
+
+Moegliche Betrachtungsdimensionen:
+
+| Dimension | Zweck |
+| --- | --- |
+| 24 Monate | Erste belastbarere Replay-Strecke mit mehreren Rebalancing-Punkten |
+| 36 Monate | Erweiterte Stabilitaetspruefung ueber laengeren Zeitraum |
+| Marktphasen | Pruefung, ob Auffaelligkeiten phasenabhaengig auftreten |
+| Monatsstichtage | Orientierung an einer paper-nahen, regelmaessig wiederholten Beobachtung |
+| Benchmark-Verlauf | Einordnung gegenueber einfacher Referenz |
+
+Eine spaetere technische Umsetzung darf diese Methodik konkretisieren. In 08.10 wird jedoch nur das Zielbild dokumentiert.
+
+### Benchmark-Vergleich
+
+Ein Benchmark-Vergleich soll in Phase 8 als Orientierung dienen.
+
+Er darf nicht als automatische Investitionsentscheidung verstanden werden. Ein Benchmark kann helfen, die Ergebnisse einzuordnen, insbesondere bei Fragen wie:
+
+* War eine Schwaechephase strategiebedingt oder marktbedingt?
+* Waren Drawdowns im Profil auffaelliger als im Vergleichsmassstab?
+* Wurde Outperformance durch hohe Rotation erkauft?
+* Gab es laengere Phasen, in denen `balanced_v1` systematisch hinter einer einfachen Referenz zurueckblieb?
+* Entstand Mehrwert durch Selektion oder nur durch allgemeine Marktbewegung?
+
+Der Benchmark-Vergleich soll dabei moeglichst einfach, transparent und reproduzierbar bleiben.
+
+Wichtig ist: Der Benchmark ist ein Vergleichsmassstab, keine Zielvorgabe und keine automatische Freigabelogik.
+
+### Anti-Overfitting-Grenzen
+
+Phase 8 darf nicht dazu genutzt werden, das Profil nachtraeglich auf den betrachteten Zeitraum hin zu optimieren.
+
+Insbesondere sind folgende Punkte ausgeschlossen:
+
+| Nicht erlaubt | Begruendung |
+| --- | --- |
+| Nachtraegliches Anpassen von `balanced_v1` an Replay-Ergebnisse | Wuerde die Aussagekraft des historischen Replays zerstoeren |
+| Parameter-Tuning anhand einzelner Schwaechephasen | Gefahr von Overfitting |
+| Entfernen unbequemer Marktphasen | Verzerrung der Bewertung |
+| Auswahl nur guenstiger Zeitraeume | Rueckschaufehler |
+| Benchmark-Wechsel zur Ergebnisverbesserung | Manipulationsrisiko |
+| Ableitung einer Investitionsfreigabe aus Replay-Daten | Historische Simulation ersetzt keinen echten Paper-Betrieb |
+
+Der Replay soll Schwaechen sichtbar machen, nicht glaetten.
+
+Wenn Auffaelligkeiten auftreten, sollen sie dokumentiert und eingeordnet werden. Eine spaetere Strategieaenderung darf nur in einer eigenen, klar abgegrenzten Analysephase erfolgen.
+
+### Sicherheitsrahmen
+
+Fuer 08.10 gelten unveraendert die bisherigen Sicherheitsgrenzen des Projekts.
+
+Ausgeschlossen bleiben:
+
+* Broker-Anbindung
+* Live-Trading
+* echte Orders
+* Stueckzahl-/Euro-Berechnung
+* Gewichtungsnormalisierung
+* Batch-Verarbeitung von echten Runs
+* automatische Paper-Run-Ausfuehrung ohne definierte Sicherheitsregeln
+* Personen-/Mandantenverwaltung
+* Investitionsfreigabe
+* automatische Handlungsempfehlung
+
+Buy/Sell/Hold-Proposals bleiben reine Delta-/Gewichtungs-Pruefsignale:
+
+| Proposal | Bedeutung |
+| --- | --- |
+| Buy | Zielgewicht liegt oberhalb Vergleichsgewicht ausserhalb Toleranz |
+| Sell | Zielgewicht liegt unterhalb Vergleichsgewicht ausserhalb Toleranz |
+| Hold | Abweichung liegt innerhalb Toleranz |
+
+Diese Proposals sind weiterhin keine Anlageempfehlungen.
+
+### Abgrenzung von 08.10
+
+08.10 ist ausschliesslich eine fachliche Dokumentationsstufe.
+
+In diesem Schritt werden bewusst nicht umgesetzt:
+
+* keine Codeaenderungen
+* keine Tests
+* keine Runner-Logik
+* keine neuen Skripte
+* keine Paper-Runs
+* keine Replay-Artefakte
+* keine Benchmark-Berechnungen
+* keine neuen Reports
+
+Die technische Umsetzung eines historischen Paper-Replays kann erst in spaeteren 08.xx-Schritten geplant und umgesetzt werden.
+
+### Erwarteter Nutzen von Phase 8
+
+Phase 8 soll helfen, den bisherigen Paper-Betrieb fachlich zu vertiefen.
+
+Der erwartete Nutzen liegt insbesondere in:
+
+* besserer Einschaetzung der Stabilitaet von `balanced_v1`
+* besserem Verstaendnis historischer Positionswechsel
+* Erkennung auffaelliger Proposal-Muster
+* Einordnung von Schwaechephasen
+* Vergleich mit einfacher Benchmark-Logik
+* klarerer Trennung zwischen historischer Simulation und echter Vorwaertsbeobachtung
+* Vorbereitung einer spaeteren, kontrollierten Replay-Auswertung
+
+Phase 8 bleibt damit eine Analyse- und Dokumentationsphase.
+
+Eine Investitionsfreigabe entsteht daraus ausdruecklich nicht.
+
+## 08.20 Historischer Paper-Replay: Datenmodell & Auswertungsstruktur
+
+### Ziel von 08.20
+
+08.20 beschreibt fachlich, welche Daten ein spaeterer historischer Paper-Replay liefern soll und wie diese Daten ausgewertet werden koennen.
+
+Dieser Abschnitt ist bewusst noch keine technische Umsetzung. Er definiert nur die fachliche Struktur, damit eine spaetere Implementierung klar abgegrenzt, pruefbar und reproduzierbar erfolgen kann.
+
+Der historische Paper-Replay soll nicht nur Endwerte liefern, sondern den Verlauf ueber mehrere historische Stichtage sichtbar machen.
+
+Im Mittelpunkt stehen:
+
+* Zielpositionen je Replay-Stichtag
+* Zielgewichte je Symbol
+* Veraenderungen gegenueber dem vorherigen Replay-Stichtag
+* Proposal-Wechsel
+* Positionswechsel
+* Gewichtsspruenge
+* Turnover-Hinweise
+* Marktphasen-Zuordnung
+* Benchmark-Einordnung
+* klare Abgrenzung zum echten Paper-Betrieb
+
+### Grundmodell eines Replay-Stichtags
+
+Ein Replay-Stichtag beschreibt den Zustand, den ein Paper-aehnlicher Lauf zu einem historischen `as_of` erzeugt haette.
+
+Jeder Replay-Stichtag soll fachlich mindestens folgende Informationen enthalten:
+
+| Feld | Bedeutung |
+| --- | --- |
+| replay_date / as_of | Historischer Bewertungsstichtag |
+| strategy_profile | Verwendetes Strategieprofil, zunaechst `balanced_v1` |
+| time_profile | Verwendetes Zeitprofil, z. B. `short`, `medium` oder `long` |
+| universe | Verwendetes Aktienuniversum |
+| target_positions | Zielpositionen des Profils zum Stichtag |
+| target_weight | Zielgewicht je Symbol |
+| benchmark_reference | Vergleichsmassstab fuer die Einordnung |
+| market_phase | Optionale fachliche Marktphasen-Zuordnung |
+| data_status | Hinweis auf Datenvollstaendigkeit und Auswertbarkeit |
+| notes | Manuelle oder fachliche Hinweise zum Stichtag |
+
+Diese Informationen bilden die Basis fuer spaetere Verlaufsvergleiche.
+
+### Positionsdaten je Stichtag
+
+Die Zielpositionen sind der Kern des historischen Paper-Replays.
+
+Fuer jedes Symbol eines Replay-Stichtags sollen mindestens folgende Informationen betrachtbar sein:
+
+| Feld | Bedeutung |
+| --- | --- |
+| symbol | Aktiensymbol |
+| target_weight | Zielgewicht im simulierten Paper-Zustand |
+| rank / selection_order | Optionale Reihenfolge oder Selektionsposition |
+| sector | Optionaler Sektor zur Einordnung |
+| is_new_position | Kennzeichen, ob die Position gegenueber dem vorherigen Stichtag neu ist |
+| is_removed_position | Kennzeichen, ob die Position gegenueber dem vorherigen Stichtag entfernt wurde |
+| previous_weight | Zielgewicht des vorherigen Replay-Stichtags |
+| weight_delta | Veraenderung des Zielgewichts gegenueber dem vorherigen Replay-Stichtag |
+| proposal | Rein rechnerisches Delta-/Gewichtungs-Pruefsignal |
+| proposal_changed | Kennzeichen, ob sich das Proposal gegenueber dem vorherigen Stichtag veraendert hat |
+
+Buy/Sell/Hold-Proposals bleiben auch im Replay ausschliesslich technische Pruefsignale und keine Handlungsempfehlungen.
+
+### Vergleich zwischen Replay-Stichtagen
+
+Ein wesentlicher Nutzen des Replays entsteht durch den Vergleich aufeinanderfolgender historischer Stichtage.
+
+Der Vergleich soll insbesondere folgende Fragen beantworten:
+
+| Frage | Zweck |
+| --- | --- |
+| Welche Symbole sind neu hinzugekommen? | Erkennung von Positionsaufbau im Replay |
+| Welche Symbole sind weggefallen? | Erkennung von Positionsabbau im Replay |
+| Welche Symbole bleiben erhalten? | Stabilitaet der Kernpositionen |
+| Wie stark aendern sich Zielgewichte? | Erkennung auffaelliger Gewichtsspruenge |
+| Wie haeufig wechseln Proposals? | Einschaetzung der Signalruhe |
+| Gibt es Phasen mit erhoehter Rotation? | Hinweis auf instabile Markt- oder Modellphasen |
+| Gibt es wiederkehrende Muster? | Fachliche Analyse moeglicher Schwachstellen |
+
+Der Vergleich soll dabei nicht nur einzelne Ausreisser betrachten, sondern den Verlauf ueber den gesamten Replay-Zeitraum.
+
+### Moegliche Kennzahlen auf Vergleichsebene
+
+Fuer jeden Vergleich zweier aufeinanderfolgender Replay-Stichtage koennen spaeter Kennzahlen gebildet werden.
+
+Fachlich sinnvoll sind insbesondere:
+
+| Kennzahl | Bedeutung |
+| --- | --- |
+| new_symbols_count | Anzahl neuer Symbole gegenueber dem vorherigen Stichtag |
+| removed_symbols_count | Anzahl entfernter Symbole gegenueber dem vorherigen Stichtag |
+| common_symbols_count | Anzahl gemeinsamer Symbole |
+| proposal_change_count | Anzahl geaenderter Proposals |
+| target_weight_jump_count | Anzahl auffaelliger Zielgewichtsspruenge |
+| total_abs_weight_delta | Summe absoluter Zielgewichtsaenderungen |
+| max_abs_weight_delta | Groesste einzelne Zielgewichtsaenderung |
+| turnover_hint | Fachlicher Hinweis auf Wechselintensitaet |
+| warnings_count | Anzahl fachlicher oder technischer Warnhinweise |
+
+Diese Kennzahlen dienen nur der Analyse und Einordnung. Sie loesen keine automatische Entscheidung aus.
+
+### Verlaufskennzahlen ueber den gesamten Replay-Zeitraum
+
+Neben dem Vergleich einzelner Stichtage soll der Replay auch aggregierte Verlaufskennzahlen ermoeglichen.
+
+Moegliche Auswertungen:
+
+| Auswertung | Bedeutung |
+| --- | --- |
+| average_positions | Durchschnittliche Anzahl Zielpositionen |
+| average_new_symbols | Durchschnittliche Anzahl neuer Symbole je Stichtag |
+| average_removed_symbols | Durchschnittliche Anzahl entfernter Symbole je Stichtag |
+| average_proposal_changes | Durchschnittliche Anzahl Proposal-Wechsel je Stichtag |
+| average_abs_weight_delta | Durchschnittliche absolute Zielgewichtsaenderung |
+| max_turnover_period | Stichtagsvergleich mit hoechster Wechselintensitaet |
+| most_stable_symbols | Symbole mit besonders langer Verweildauer |
+| least_stable_symbols | Symbole mit kurzer oder haeufig unterbrochener Verweildauer |
+| weak_phase_periods | Zeitraeume mit auffaelliger Schwaeche oder Instabilitaet |
+| benchmark_gap_periods | Zeitraeume mit auffaelligem Abstand zur Benchmark |
+
+Diese Verlaufskennzahlen sollen helfen, das Profil `balanced_v1` nicht nur punktuell, sondern als Prozess ueber Zeit zu bewerten.
+
+### Benchmark-Bezug
+
+Der Benchmark-Bezug soll im Replay als Einordnungsebene vorgesehen werden.
+
+Dabei geht es nicht um eine automatische Bewertung, sondern um Kontext:
+
+| Benchmark-Aspekt | Fragestellung |
+| --- | --- |
+| Benchmark-Performance | Wie entwickelte sich die Referenz im gleichen Zeitraum? |
+| Relative Staerke / Schwaeche | Gab es Phasen auffaelliger Abweichung? |
+| Drawdown-Vergleich | Waren Schwaechephasen marktueblich oder profilbedingt auffaellig? |
+| Erholungsverhalten | Hat sich `balanced_v1` nach Schwaechephasen aehnlich, schneller oder langsamer erholt? |
+| Stabilitaet trotz Benchmark-Bewegung | Blieben Zielpositionen trotz Marktbewegung nachvollziehbar stabil? |
+
+Der Benchmark soll einfach, transparent und reproduzierbar bleiben.
+
+Ein spaeterer Benchmark-Vergleich darf nicht dazu genutzt werden, den Betrachtungszeitraum oder die Benchmark nachtraeglich so zu waehlen, dass das Ergebnis besser aussieht.
+
+### Marktphasen-Zuordnung
+
+Fuer die fachliche Analyse kann jeder Replay-Stichtag oder jeder Replay-Zeitraum einer Marktphase zugeordnet werden.
+
+Moegliche Marktphasen:
+
+| Marktphase | Zweck der Einordnung |
+| --- | --- |
+| Schwaechephase | Pruefung von Drawdown, Rotation und Stabilitaet |
+| Erholungsphase | Pruefung von Reaktionsfaehigkeit und Positionsaufbau |
+| Seitwaertsphase | Pruefung von Signalruhe und unnoetiger Rotation |
+| starke Marktphase | Pruefung, ob Chancen genutzt werden oder das Profil zurueckbleibt |
+| Rotationsphase | Pruefung, ob Sektor- oder Stilwechsel zu auffaelligen Umschichtungen fuehren |
+
+Die Marktphasen-Zuordnung soll erklaerend wirken, nicht optimierend.
+
+### Warnhinweise und Auffaelligkeiten
+
+Ein spaeterer Replay-Report sollte Auffaelligkeiten sichtbar machen.
+
+Moegliche Warnhinweise:
+
+| Warnhinweis | Bedeutung |
+| --- | --- |
+| hohe Wechselhaeufigkeit | Viele neue oder entfernte Symbole in kurzer Zeit |
+| starke Zielgewichtsspruenge | Einzelne Positionen aendern sich auffaellig stark |
+| haeufige Proposal-Wechsel | Buy/Sell/Hold-Signale wechseln stark |
+| laengere Benchmark-Schwaeche | Profil bleibt ueber laengere Zeit hinter der Referenz |
+| instabile Kernpositionen | Wenige Positionen bleiben ueber laengere Zeit erhalten |
+| Datenluecken | Replay-Stichtag ist nur eingeschraenkt auswertbar |
+| unklare Marktphase | Marktumfeld kann nicht sauber eingeordnet werden |
+
+Warnhinweise sind Analysehinweise. Sie sind keine automatischen Stoppsignale und keine Handlungsempfehlungen.
+
+### Abgrenzung zu echten Paper-Reports
+
+Der historische Replay darf nicht mit echten Paper-Reports verwechselt werden.
+
+| Aspekt | Historischer Replay | Echter Paper-Betrieb |
+| --- | --- | --- |
+| Zeitrichtung | Rueckblickend simuliert | Vorwaerts laufend |
+| Datenlage | Historisch vollstaendig oder weitgehend bekannt | Nur aktueller Stand |
+| Psychologischer Effekt | Rueckschau ist einfacher zu akzeptieren | Echte Unsicherheit im Zeitpunkt |
+| Aussagekraft | Gut fuer Stabilitaets- und Prozesspruefung | Wichtiger fuer spaetere operative Einschaetzung |
+| Risiko | Overfitting und Rueckschaufehler | Zeitbedarf und begrenzte Stichprobe |
+| Investitionsfreigabe | Ausgeschlossen | Ebenfalls ausgeschlossen |
+
+Der Replay ergaenzt den echten Paper-Betrieb, ersetzt ihn aber nicht.
+
+### Sicherheits- und Umsetzungsgrenzen fuer 08.20
+
+08.20 bleibt reine Dokumentation.
+
+In diesem Schritt werden nicht umgesetzt:
+
+* keine Codeaenderungen
+* keine Tests
+* keine Runner-Logik
+* keine neuen Skripte
+* keine Paper-Runs
+* keine Replay-Laeufe
+* keine Benchmark-Berechnungen
+* keine Artefakterzeugung
+* keine automatische Bewertung
+* keine Investitionsfreigabe
+
+Die spaetere technische Umsetzung muss diese fachlichen Grenzen respektieren.
+
+### Erwartetes Ergebnis einer spaeteren Umsetzung
+
+Eine spaetere Umsetzung auf Basis dieses Datenmodells sollte einen Replay-Verlauf erzeugen koennen, der fachlich beantwortet:
+
+* Wie stabil waren die Zielpositionen ueber 24 bis 36 Monate?
+* Wie oft entstanden neue oder entfernte Symbole?
+* Wie haeufig wechselten Proposals?
+* Gab es auffaellige Zielgewichtsspruenge?
+* Gab es Phasen erhoehter Rotation?
+* Welche Symbole waren besonders stabil?
+* Wo traten Schwaechephasen auf?
+* Wie ordnet sich der Verlauf gegenueber einer einfachen Benchmark ein?
+* Welche Aussagen stammen aus historischer Simulation und welche bleiben dem echten Paper-Betrieb vorbehalten?
+
+Damit schafft 08.20 die fachliche Grundlage fuer spaetere Replay-Konzeption und technische Umsetzung.

@@ -145,6 +145,8 @@ Zwei bereits vorhandene Paper-Reports koennen neutral miteinander verglichen wer
 
 Der Vergleich liest nur die zwei explizit uebergebenen Dateien. Er startet keine Paper-Runs, fuehrt keine Batch-Verarbeitung ein, erzeugt keine Orders, verbindet keinen Broker und erteilt keine Investitionsfreigabe.
 
+Die praktische Betriebscheckliste fuer Phase 7 sowie die klare Proposal-Abgrenzung stehen in `docs/strategy_analysis.md`, Abschnitt `07.95 Paper-Betrieb: Ablauf, Checkliste & Proposal-Abgrenzung`. Dort ist festgelegt, dass Buy/Sell/Hold-Proposals nur Delta-/Gewichtungs-Pruefsignale sind und keine Anlageempfehlung, Ordervorbereitung, Stueckzahl- oder Euro-Berechnung und keine Investitionsfreigabe darstellen.
+
 ## Beispiel aus Kontrolllauf
 
 Erfolgreicher Kontrolllauf:
