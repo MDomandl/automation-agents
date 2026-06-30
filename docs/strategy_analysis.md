@@ -8058,3 +8058,249 @@ Die spaeteren Umsetzungsschritte sollen auf dieser Grundlage beantworten koennen
 * Wie wird verhindert, dass die Replay-Zeitachse nachtraeglich optimiert wird?
 
 Damit schafft 08.30 die fachliche Grundlage fuer eine saubere, nachvollziehbare und nicht nachtraeglich geschoente Replay-Auswertung.
+
+## 08.40 Historischer Paper-Replay: Benchmark-Konzept & Vergleichslogik
+
+08.40 beschreibt das fachliche Benchmark-Konzept fuer einen spaeteren historischen Paper-Replay.
+
+Der Benchmark soll helfen, die Ergebnisse von `balanced_v1` im historischen Replay besser einzuordnen. Er ist aber keine automatische Bewertung, keine Optimierungsgrundlage und keine Investitionsfreigabe.
+
+In diesem Schritt wird noch nichts technisch umgesetzt.
+
+08.40 bleibt reine Markdown-Dokumentation.
+
+### Grundsatz des Benchmark-Vergleichs
+
+Ein Benchmark-Vergleich soll im historischen Replay als Orientierung dienen.
+
+Er soll helfen zu unterscheiden, ob Auffaelligkeiten eher aus dem allgemeinen Marktumfeld oder aus dem Verhalten von `balanced_v1` stammen koennten.
+
+Der Benchmark beantwortet dabei nicht die Frage:
+
+> Soll dieses Profil investiert werden?
+
+Sondern eher:
+
+> Wie verhielt sich das Profil im Replay im Verhaeltnis zu einer einfachen, transparenten Referenz?
+
+Der Benchmark ist damit ein Vergleichsmassstab, aber keine Entscheidungslogik.
+
+### Zweck des Benchmarks
+
+Der Benchmark soll insbesondere folgende Einordnungen ermoeglichen:
+
+| Fragestellung | Zweck |
+| --- | --- |
+| Marktumfeld | War eine Schwaechephase auch im Gesamtmarkt sichtbar? |
+| Relative Entwicklung | Lief `balanced_v1` auffaellig besser oder schlechter als die Referenz? |
+| Drawdown-Einordnung | Waren Rueckgaenge marktueblich oder profilbedingt staerker? |
+| Erholungsverhalten | Erholte sich das Profil schneller, langsamer oder aehnlich wie der Benchmark? |
+| Stabilitaet | Blieben Zielpositionen trotz Benchmark-Bewegung nachvollziehbar stabil? |
+| Rotation | Wurde relative Staerke durch hohe Wechselhaeufigkeit erkauft? |
+| Schwaechephasen | Gab es laengere Phasen mit deutlichem Abstand zur Referenz? |
+
+Der Benchmark soll Kontext liefern, nicht automatisch urteilen.
+
+### Anforderungen an einen geeigneten Benchmark
+
+Ein geeigneter Benchmark fuer Phase 8 soll einfach, transparent und reproduzierbar sein.
+
+Fachliche Anforderungen:
+
+| Anforderung | Bedeutung |
+| --- | --- |
+| einfache Nachvollziehbarkeit | Der Benchmark muss verstaendlich und erklaerbar bleiben |
+| passender Zeitraum | Benchmark-Start und -Ende muessen zum Replay-Zeitraum passen |
+| konsistente Datenbasis | Die Daten muessen fuer den gesamten Zeitraum nutzbar sein |
+| keine nachtraegliche Auswahl | Der Benchmark darf nicht gewaehlt werden, weil er das Ergebnis besser aussehen laesst |
+| klare Dokumentation | Benchmark-Name, Zeitraum und Berechnungslogik muessen sichtbar sein |
+| keine Optimierungsfunktion | Der Benchmark darf nicht zur nachtraeglichen Profilanpassung genutzt werden |
+
+Ein einfacher Benchmark ist fuer Phase 8 besser als ein komplexer Vergleich, der schwer erklaerbar oder leicht manipulierbar ist.
+
+### Moegliche Benchmark-Arten
+
+Fuer eine spaetere Umsetzung kommen fachlich unterschiedliche Benchmark-Arten in Betracht.
+
+| Benchmark-Art | Beschreibung | Bewertung fuer Phase 8 |
+| --- | --- | --- |
+| Breiter Marktindex | Ein einfacher Gesamtmarktvergleich, z. B. S&P-500-nahe Referenz | Gut geeignet als erste Orientierung |
+| Universe-nahe Referenz | Vergleich mit dem verwendeten Aktienuniversum oder einer einfachen Gleichgewichtung | Fachlich interessant, aber technischer aufwendiger |
+| Cash-/Null-Referenz | Vergleich gegen keine Marktexponierung | Nur begrenzt hilfreich |
+| Profilinterne Referenz | Vergleich gegen fruehere Profilvarianten | Fuer Phase 8 nicht Hauptziel |
+| Mehrfach-Benchmark | Mehrere Referenzen gleichzeitig | Spaeter denkbar, aber Gefahr von Unuebersichtlichkeit |
+
+Fuer den ersten historischen Replay sollte ein moeglichst einfacher und stabiler Benchmark bevorzugt werden.
+
+### Benchmark-Zeitachse
+
+Die Benchmark-Zeitachse muss zur Replay-Zeitachse passen.
+
+Grundregeln:
+
+| Regel | Bedeutung |
+| --- | --- |
+| Benchmark-Start entspricht Replay-Start | Der Vergleich beginnt mit dem ersten ausgewerteten Replay-Stichtag |
+| Benchmark-Ende entspricht Replay-Ende | Der Vergleich endet mit dem letzten ausgewerteten Replay-Stichtag |
+| Keine nachtraegliche Verschiebung | Start und Ende duerfen nicht zur Ergebnisverbesserung veraendert werden |
+| Gleiche Marktphasen | Marktphasen sollen fuer Replay und Benchmark identisch eingeordnet werden |
+| Dokumentierte Datenluecken | Fehlende Benchmark-Daten muessen sichtbar bleiben |
+
+Ein Benchmark ist nur dann aussagekraeftig, wenn Zeitraum und Methode sauber dokumentiert sind.
+
+### Vergleichsebenen
+
+Der Benchmark-Vergleich soll spaeter auf mehreren Ebenen moeglich sein.
+
+| Ebene | Zweck |
+| --- | --- |
+| Gesamtzeitraum | Einordnung ueber den vollstaendigen Replay-Zeitraum |
+| Einzelne Replay-Perioden | Vergleich zwischen zwei aufeinanderfolgenden Stichtagen |
+| Marktphasen | Vergleich innerhalb definierter Marktphasen |
+| Schwaechephasen | Einordnung von Rueckgaengen und Underperformance |
+| Erholungsphasen | Pruefung des Reaktions- und Erholungsverhaltens |
+| Stabilitaetsphasen | Pruefung, ob ruhige Marktphasen auch ruhige Profile erzeugen |
+
+Diese Ebenen sollen helfen, nicht nur ein Endergebnis zu betrachten.
+
+### Moegliche Vergleichskennzahlen
+
+Ein spaeterer Benchmark-Report kann fachlich verschiedene Kennzahlen enthalten.
+
+Moegliche Kennzahlen:
+
+| Kennzahl | Bedeutung |
+| --- | --- |
+| replay_return | Simulierte Entwicklung des Replay-Profils im Zeitraum |
+| benchmark_return | Entwicklung der Benchmark im gleichen Zeitraum |
+| relative_return | Differenz zwischen Replay und Benchmark |
+| max_drawdown_replay | Maximaler Rueckgang des Replay-Profils |
+| max_drawdown_benchmark | Maximaler Rueckgang der Benchmark |
+| drawdown_gap | Unterschied der Rueckgaenge |
+| recovery_time_replay | Erholungsdauer des Replay-Profils nach Schwaechephase |
+| recovery_time_benchmark | Erholungsdauer der Benchmark |
+| weak_period_count | Anzahl auffaelliger Schwaecheperioden |
+| benchmark_gap_periods | Zeitraeume mit deutlichem Abstand zur Benchmark |
+
+Diese Kennzahlen sind Analysewerte. Sie loesen keine automatische Entscheidung aus.
+
+### Verbindung zu Positions- und Proposal-Analyse
+
+Der Benchmark-Vergleich soll nicht isoliert betrachtet werden.
+
+Besonders wichtig ist die Verbindung zwischen relativer Entwicklung und innerer Profilstabilitaet.
+
+Beispiele:
+
+| Beobachtung | Fachliche Frage |
+| --- | --- |
+| Benchmark stark, Replay schwach | Hat `balanced_v1` Chancen verpasst oder bewusst defensiver selektiert? |
+| Benchmark schwach, Replay stabil | Hat das Profil defensiv geholfen oder nur zufaellig weniger verloren? |
+| Replay besser, aber hohe Rotation | Wurde Mehrwert durch haeufige Wechsel erkauft? |
+| Replay schlechter, aber stabile Positionen | Sind Kernpositionen nachvollziehbar, aber temporaer schwach? |
+| Haeufige Proposal-Wechsel ohne Mehrwert | Erzeugt das Profil zu viel Aktivitaet? |
+| Wenige Wechsel, aber deutliche Underperformance | Ist das Profil zu traege oder falsch positioniert? |
+
+Der Benchmark ist deshalb nur zusammen mit Positionsstabilitaet, Proposal-Wechseln und Turnover-Hinweisen sinnvoll interpretierbar.
+
+### Benchmark-Hopping verhindern
+
+Ein zentrales Risiko ist das nachtraegliche Auswaehlen eines Benchmarks, der das Ergebnis guenstiger erscheinen laesst.
+
+Nicht zulaessig sind:
+
+| Nicht zulaessig | Begruendung |
+| --- | --- |
+| Benchmark nach Ergebnis auswaehlen | Rueckschaufehler |
+| Mehrere Benchmarks testen und nur den guenstigsten berichten | Verzerrung |
+| Benchmark-Zeitraum verschieben | Ergebnisoptimierung |
+| Benchmark wechseln, wenn `balanced_v1` schlecht aussieht | fehlende Vergleichbarkeit |
+| komplexe Benchmark bauen, um Schwaechen zu kaschieren | Manipulationsrisiko |
+| Benchmark nachtraeglich an Universe oder Profil anpassen | Overfitting-Gefahr |
+
+Falls spaeter mehrere Benchmarks betrachtet werden, muessen alle vorab dokumentiert und vollstaendig berichtet werden.
+
+### Anti-Overfitting-Regeln
+
+Fuer den Benchmark-Vergleich gelten dieselben Anti-Overfitting-Grundsaetze wie fuer den Replay insgesamt.
+
+| Regel | Zweck |
+| --- | --- |
+| Benchmark vor der Auswertung festlegen | Schutz vor nachtraeglicher Schoenrechnung |
+| Zeitraum vor der Auswertung festlegen | Schutz vor Ergebnisoptimierung |
+| Schwaechephasen vollstaendig berichten | ehrliche Einordnung |
+| Keine Parameteranpassung aus Benchmark-Abweichungen | Schutz vor Overfitting |
+| Benchmark-Abstand nicht isoliert bewerten | verhindert Scheinsicherheit |
+| Replay und Paper-Betrieb getrennt halten | verhindert falsche Schlussfolgerungen |
+
+Der Benchmark darf Schwaechen sichtbar machen, aber nicht zur nachtraeglichen Glaettung verwendet werden.
+
+### Grenzen des Benchmark-Vergleichs
+
+Ein Benchmark-Vergleich hat klare Grenzen.
+
+| Grenze | Bedeutung |
+| --- | --- |
+| Historische Daten | Der Vergleich bleibt rueckblickend |
+| Keine Zukunftsaussage | Gute historische relative Entwicklung garantiert nichts |
+| Keine operative Umsetzung | Benchmark-Ergebnisse fuehren nicht zu Orders |
+| Keine Profilfreigabe | Auch starke Benchmark-Ergebnisse erzeugen keine Investitionsfreigabe |
+| Modellrisiko bleibt | Die Strategie kann trotz guter Historie kuenftig versagen |
+| Daten- und Methodikrisiko | Ergebnisse haengen von Datenqualitaet und Berechnungslogik ab |
+
+Der Benchmark erhoeht die Einordnung, aber nicht automatisch die Sicherheit.
+
+### Sicherheitsrahmen
+
+Auch im Benchmark-Konzept bleiben die bisherigen Sicherheitsgrenzen unveraendert.
+
+Ausgeschlossen bleiben:
+
+* Broker-Anbindung
+* Live-Trading
+* echte Orders
+* Stueckzahl-/Euro-Berechnung
+* Gewichtungsnormalisierung
+* Batch-Verarbeitung von echten Runs
+* automatische Paper-Run-Ausfuehrung ohne definierte Sicherheitsregeln
+* Personen-/Mandantenverwaltung
+* Investitionsfreigabe
+* automatische Handlungsempfehlung
+
+Buy/Sell/Hold-Proposals bleiben reine Delta-/Gewichtungs-Pruefsignale und keine Anlageempfehlungen.
+
+### Abgrenzung von 08.40
+
+08.40 bleibt ausschliesslich Dokumentation.
+
+In diesem Schritt werden nicht umgesetzt:
+
+* keine Codeaenderungen
+* keine Tests
+* keine neuen Skripte
+* keine Runner-Aenderungen
+* keine Paper-Runs
+* keine Replay-Laeufe
+* keine Benchmark-Berechnungen
+* keine Artefakte
+* keine automatische Bewertung
+* keine Investitionsfreigabe
+
+Die konkrete technische Umsetzung des Benchmark-Vergleichs kann erst in spaeteren 08.xx-Schritten geplant werden.
+
+### Erwartetes Ergebnis fuer spaetere Schritte
+
+Nach 08.40 ist fachlich klarer, welche Rolle ein Benchmark im historischen Paper-Replay spielen soll.
+
+Spaetere Umsetzungsschritte sollen auf dieser Grundlage beantworten koennen:
+
+* Welche Benchmark wird verwendet?
+* Warum ist diese Benchmark fachlich passend?
+* Welcher Zeitraum wird verglichen?
+* Welche Kennzahlen werden berichtet?
+* Wie werden Schwaechephasen eingeordnet?
+* Wie wird Benchmark-Hopping verhindert?
+* Wie werden Benchmark-Ergebnis, Positionsstabilitaet und Proposal-Verhalten gemeinsam interpretiert?
+* Welche Aussagen bleiben trotz Benchmark-Vergleich ausdruecklich ausgeschlossen?
+
+Damit schafft 08.40 die fachliche Grundlage fuer einen transparenten, nachvollziehbaren und nicht nachtraeglich geschoenten Benchmark-Vergleich innerhalb von Phase 8.
