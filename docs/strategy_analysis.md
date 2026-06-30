@@ -8304,3 +8304,299 @@ Spaetere Umsetzungsschritte sollen auf dieser Grundlage beantworten koennen:
 * Welche Aussagen bleiben trotz Benchmark-Vergleich ausdruecklich ausgeschlossen?
 
 Damit schafft 08.40 die fachliche Grundlage fuer einen transparenten, nachvollziehbaren und nicht nachtraeglich geschoenten Benchmark-Vergleich innerhalb von Phase 8.
+
+## 08.50 Historischer Paper-Replay: Technisches Umsetzungskonzept ohne Implementierung
+
+### Ziel von 08.50
+
+08.50 beschreibt ein technisches Umsetzungskonzept fuer einen spaeteren historischen Paper-Replay.
+
+Dieser Abschnitt ist noch keine Implementierung. Er dient dazu, die fachlichen Anforderungen aus 08.10 bis 08.40 in eine spaetere technische Arbeitsstruktur zu uebersetzen.
+
+Ziel ist, Codex in einem spaeteren Schritt klare Leitplanken zu geben:
+
+* welche Aufgabe ein Replay-Werkzeug erfuellen soll
+* welche Eingaben es verwenden darf
+* welche Ausgaben es erzeugen soll
+* welche Sicherheitsgrenzen hart gelten
+* welche Tests spaeter notwendig waeren
+* welche Automatisierungen ausdruecklich ausgeschlossen bleiben
+
+08.50 bleibt reine Markdown-Dokumentation.
+
+### Grundidee eines spaeteren Replay-Werkzeugs
+
+Ein spaeteres Replay-Werkzeug soll historische Paper-aehnliche Stichtage auswerten und daraus einen Verlauf erzeugen.
+
+Es soll nicht live handeln, keine Orders vorbereiten und keine echten Portfolioentscheidungen treffen.
+
+Die technische Grundidee lautet:
+
+> Fuer definierte historische Stichtage wird nachvollziehbar ausgewertet, welche Zielpositionen `balanced_v1` erzeugt haette und wie sich diese Zielpositionen, Gewichte und Pruefsignale ueber Zeit veraendert haetten.
+
+Im Mittelpunkt stehen Verlauf, Stabilitaet und Einordnung, nicht Ausfuehrung.
+
+### Denkbares spaeteres Skript
+
+Fuer eine spaetere Umsetzung koennte ein eigenes Skript vorgesehen werden.
+
+Moeglicher Name:
+
+`scripts/run_historical_paper_replay.py`
+
+Der konkrete Name ist in 08.50 noch nicht verbindlich. Wichtig ist nur die fachliche Rolle:
+
+| Bestandteil | Rolle |
+| --- | --- |
+| Replay-Skript | Fuehrt definierte historische Replay-Stichtage aus oder wertet sie aus |
+| Replay-Konfiguration | Definiert Zeitraum, Stichtagslogik, Profil und optionale Benchmark |
+| Replay-Report | Fasst Stichtage, Positionswechsel, Gewichtsdeltas und Auffaelligkeiten zusammen |
+| Replay-Manifest | Dokumentiert Eingaben, Zeitraum, Profil, Sicherheitsstatus und erzeugte Artefakte |
+| Unit-Tests | Sichern Datenmodell, Vergleichslogik und Sicherheitsgrenzen ab |
+
+Das spaetere Skript darf nur innerhalb der definierten Replay-Grenzen arbeiten.
+
+### Moegliche Eingaben
+
+Ein spaeterer historischer Paper-Replay benoetigt klar definierte Eingaben.
+
+Moegliche Inputs:
+
+| Input | Bedeutung |
+| --- | --- |
+| strategy_profile | Zunaechst `balanced_v1` |
+| time_profile | z. B. `short`, `medium` oder `long` |
+| universe | Verwendetes Aktienuniversum |
+| replay_start | Erster auszuwertender Replay-Stichtag |
+| replay_end | Letzter auszuwertender Replay-Stichtag |
+| replay_frequency | z. B. monatlich |
+| warmup_start | Beginn benoetigter Vorlaufdaten |
+| benchmark | Optionale, vorab definierte Benchmark |
+| market_phase_file | Optionale Zuordnung von Marktphasen |
+| output_dir | Zielordner fuer spaetere Replay-Artefakte |
+| tolerance | Toleranz fuer Buy/Sell/Hold-Pruefsignale |
+
+Diese Inputs muessen spaeter explizit dokumentiert werden. Implizite Annahmen sollen vermieden werden.
+
+### Replay-Stichtage
+
+Die spaeteren Replay-Stichtage sollen aus dem definierten Zeitraum und der Stichtagslogik abgeleitet werden.
+
+Fachliche Anforderungen:
+
+| Anforderung | Bedeutung |
+| --- | --- |
+| reproduzierbar | Gleiche Eingaben erzeugen gleiche Stichtagsliste |
+| nachvollziehbar | Jeder Stichtag ist im Report sichtbar |
+| vollstaendig dokumentiert | Uebersprungene oder verschobene Stichtage werden erklaert |
+| nicht ergebnisabhaengig | Stichtage werden nicht anhand der spaeteren Ergebnisse gewaehlt |
+| paper-nah | Die Logik orientiert sich am bisherigen Paper-/Rebalancing-Gedanken |
+
+Falls ein Monatsstichtag nicht direkt auswertbar ist, muss spaeter eindeutig definiert werden, ob der naechstgeeignete Handelstag verwendet oder der Stichtag uebersprungen wird.
+
+Diese Regel muss vor der Auswertung gelten.
+
+### Verarbeitung je Replay-Stichtag
+
+Ein spaeteres Replay-Werkzeug soll je Stichtag einen Paper-aehnlichen Zielzustand bestimmen.
+
+Pro Stichtag sollen mindestens folgende Informationen entstehen:
+
+| Information | Zweck |
+| --- | --- |
+| as_of | Historischer Replay-Stichtag |
+| selected_symbols | Zielpositionen zum Stichtag |
+| target_weights | Zielgewichte je Symbol |
+| ranking / order | Optionale Selektionsreihenfolge |
+| data_status | Hinweis auf Datenvollstaendigkeit |
+| warnings | Fachliche oder technische Auffaelligkeiten |
+| previous_reference | Bezug zum vorherigen Replay-Stichtag |
+
+Der erste Stichtag dient als Startzustand. Vergleichskennzahlen entstehen ab dem zweiten Stichtag.
+
+### Vergleich zwischen Stichtagen
+
+Der Verlauf entsteht aus dem Vergleich aufeinanderfolgender Replay-Stichtage.
+
+Ein spaeteres Werkzeug soll je Vergleich mindestens auswerten koennen:
+
+| Vergleichswert | Bedeutung |
+| --- | --- |
+| new_symbols | Neue Symbole gegenueber dem vorherigen Stichtag |
+| removed_symbols | Entfernte Symbole gegenueber dem vorherigen Stichtag |
+| common_symbols | Gemeinsame Symbole |
+| target_weight_deltas | Zielgewichtsaenderungen |
+| proposal_by_symbol | Buy/Sell/Hold-Pruefsignal je Symbol |
+| proposal_changes | Veraenderung der Pruefsignale |
+| total_abs_weight_delta | Summe absoluter Gewichtsdeltas |
+| max_abs_weight_delta | Groesster einzelner Gewichtssprung |
+| warnings | Auffaelligkeiten im Vergleich |
+
+Diese Werte dienen ausschliesslich der Analyse.
+
+### Moegliche spaetere Artefakte
+
+Eine spaetere technische Umsetzung koennte eigene Replay-Artefakte erzeugen.
+
+Moegliche Zielstruktur:
+
+| Artefakt | Zweck |
+| --- | --- |
+| `reports/historical_paper_replay/historical_paper_replay.json` | Maschinenlesbarer Replay-Gesamtbericht |
+| `reports/historical_paper_replay/historical_paper_replay.md` | Lesbarer Markdown-Report |
+| `reports/historical_paper_replay/historical_paper_replay_manifest.json` | Dokumentation von Eingaben, Zeitraum, Profil und Sicherheitsstatus |
+| optionale CSV-Dateien | Nur falls fuer manuelle Pruefung sinnvoll |
+
+Die konkrete Artefaktstruktur wird erst in einem spaeteren Umsetzungsschritt festgelegt.
+
+Fuer 08.50 werden keine Artefakte erzeugt.
+
+### Moegliche Report-Struktur
+
+Ein spaeterer Markdown-Report koennte fachlich folgende Abschnitte enthalten:
+
+| Abschnitt | Inhalt |
+| --- | --- |
+| Zusammenfassung | Zeitraum, Profil, Anzahl Stichtage, Status |
+| Sicherheitsstatus | Bestaetigung: kein Broker, keine Orders, kein Live-Trading |
+| Eingaben | Profil, Universe, Zeitprofil, Benchmark, Toleranz |
+| Stichtagsuebersicht | Alle Replay-Stichtage mit Datenstatus |
+| Positionsverlauf | Zielpositionen und Stabilitaet ueber Zeit |
+| Vergleich je Periode | Neue/entfernte/gemeinsame Symbole, Deltas, Proposals |
+| Auffaelligkeiten | Gewichtsspruenge, Proposal-Wechsel, Datenluecken |
+| Marktphasen | Optionale Einordnung nach Marktphase |
+| Benchmark-Einordnung | Optionale relative Einordnung |
+| Grenzen | Klare Abgrenzung zu Paper-Betrieb und Investitionsfreigabe |
+
+Der Report soll erklaerbar und manuell pruefbar bleiben.
+
+### Benchmark-Einbindung
+
+Ein Benchmark darf spaeter nur eingebunden werden, wenn er vorab definiert und dokumentiert ist.
+
+Technische Anforderungen:
+
+| Anforderung | Bedeutung |
+| --- | --- |
+| optional | Replay muss auch ohne Benchmark lauffaehig oder auswertbar sein |
+| transparent | Benchmark-Name und Zeitraum werden im Report sichtbar |
+| gleicher Zeitraum | Benchmark-Zeitraum entspricht Replay-Zeitraum |
+| keine automatische Optimierung | Benchmark darf keine Profilanpassung ausloesen |
+| vollstaendige Berichterstattung | Benchmark-Schwaechen und -Luecken werden dokumentiert |
+
+Der Benchmark ist Kontext, keine Entscheidungslogik.
+
+### Marktphasen-Einbindung
+
+Marktphasen koennen spaeter optional eingebunden werden.
+
+Moegliche technische Form:
+
+| Ansatz | Beschreibung |
+| --- | --- |
+| manuelle Zuordnung | Eine Datei ordnet Zeitraeume Marktphasen zu |
+| regelbasierte Zuordnung | Eine spaetere Logik bestimmt Marktphasen nach festen Regeln |
+| keine Zuordnung | Replay laeuft ohne Marktphasen-Ebene |
+
+Fuer eine erste Umsetzung waere eine einfache, manuell dokumentierte Marktphasen-Zuordnung am transparentesten.
+
+Wichtig ist: Marktphasen duerfen nicht nachtraeglich so angepasst werden, dass Ergebnisse besser wirken.
+
+### Sicherheitsstatus im Manifest
+
+Ein spaeteres Replay-Manifest soll den Sicherheitsstatus ausdruecklich dokumentieren.
+
+Pflichtinformationen:
+
+| Feld | Erwarteter Wert |
+| --- | --- |
+| runner_mode | historical_paper_replay oder vergleichbare eindeutige Kennzeichnung |
+| broker_connected | false |
+| live_trading_enabled | false |
+| orders_executed | false |
+| approval_required | true oder fachlich gleichwertiger Hinweis |
+| investment_recommendation_generated | false |
+| position_sizing_enabled | false |
+| euro_amounts_calculated | false |
+| share_quantities_calculated | false |
+
+Damit bleibt technisch sichtbar, dass der Replay keine operative Ausfuehrung darstellt.
+
+### Spaetere Testanforderungen
+
+Eine spaetere Implementierung muss durch Tests abgesichert werden.
+
+Moegliche Testbereiche:
+
+| Testbereich | Zweck |
+| --- | --- |
+| Stichtagsgenerierung | Reproduzierbare Monatsstichtage |
+| Vergleichslogik | Neue, entfernte und gemeinsame Symbole korrekt erkennen |
+| Gewichtsdeltas | Zielgewichtsaenderungen korrekt berechnen |
+| Proposal-Logik | Buy/Sell/Hold weiterhin nur als Delta-Pruefsignal |
+| Toleranzverhalten | Kleine Abweichungen korrekt als Hold behandeln |
+| Manifest-Sicherheitsfelder | Broker/Live/Orders dauerhaft false |
+| Datenluecken | Fehlende oder unvollstaendige Stichtage sichtbar machen |
+| Benchmark-Handling | Benchmark optional und transparent behandeln |
+| Marktphasen-Handling | Zuordnungen korrekt dokumentieren |
+| Report-Erzeugung | Markdown/JSON nachvollziehbar und stabil erzeugen |
+
+Tests sind fuer spaetere technische Schritte verpflichtend, aber nicht Bestandteil von 08.50.
+
+### Ausdruecklich nicht vorgesehen
+
+Auch in einem spaeteren technischen Replay bleiben bestimmte Dinge ausgeschlossen.
+
+Nicht vorgesehen sind:
+
+* Broker-Anbindung
+* Live-Trading
+* echte Orders
+* Ordervorschlaege
+* Stueckzahlberechnung
+* Euro-Betraege
+* Portfolio-Normalisierung
+* automatische Investitionsfreigabe
+* automatische Handlungsempfehlung
+* Personen- oder Mandantenverwaltung
+* Batch-Verarbeitung echter Paper-Runs ohne Sicherheitsregeln
+* stillschweigende Parameteroptimierung
+* nachtraegliche Benchmark-Auswahl zur Ergebnisverbesserung
+
+Der historische Paper-Replay bleibt ein Analysewerkzeug.
+
+### Abgrenzung von 08.50
+
+08.50 ist ausschliesslich ein Umsetzungskonzept.
+
+In diesem Schritt werden nicht umgesetzt:
+
+* keine Codeaenderungen
+* keine Tests
+* keine neuen Skripte
+* keine Runner-Aenderungen
+* keine Paper-Runs
+* keine Replay-Laeufe
+* keine Benchmark-Berechnungen
+* keine Artefakte
+* keine automatische Bewertung
+* keine Investitionsfreigabe
+
+Die spaetere technische Umsetzung kann auf Basis dieses Konzepts separat geplant und beauftragt werden.
+
+### Erwartetes Ergebnis fuer spaetere Schritte
+
+Nach 08.50 ist fachlich und technisch vorbereitet, was ein spaeteres Replay-Werkzeug leisten soll.
+
+Die naechsten Schritte koennen darauf aufbauen und konkreter werden:
+
+* Definition eines ersten minimalen Replay-Scopes
+* Entscheidung ueber Stichtagsfrequenz und Zeitraum
+* Entscheidung ueber optionale Benchmark-Einbindung
+* Entscheidung ueber Marktphasen-Datei oder Verzicht darauf
+* Planung eines ersten Skripts
+* Planung der Unit-Tests
+* Planung der Report-Artefakte
+* klare Codex-Anweisung fuer eine erste Implementierungsstufe
+
+Damit bildet 08.50 die Bruecke zwischen fachlicher Replay-Dokumentation und spaeterer kontrollierter technischer Umsetzung.
