@@ -8600,3 +8600,237 @@ Die naechsten Schritte koennen darauf aufbauen und konkreter werden:
 * klare Codex-Anweisung fuer eine erste Implementierungsstufe
 
 Damit bildet 08.50 die Bruecke zwischen fachlicher Replay-Dokumentation und spaeterer kontrollierter technischer Umsetzung.
+
+## 08.70 Historischer Paper-Replay: Umsetzungskontrolle & erster technischer Zwischenstand
+
+### Ziel von 08.70
+
+08.70 dokumentiert den ersten technischen Zwischenstand nach der Minimal-Implementierung des historischen Paper-Replays.
+
+Die Umsetzung erfolgte auf Basis des in 08.60 definierten Minimal-Scopes.
+
+Ziel dieses Abschnitts ist nicht, neue Funktionen zu planen oder zusaetzliche Auswertungen vorzunehmen. Stattdessen wird festgehalten:
+
+* was umgesetzt wurde
+* welche Dateien neu hinzugekommen sind
+* welche Sicherheitsgrenzen eingehalten wurden
+* welche Tests gelaufen sind
+* welche fachlichen Grenzen weiterhin gelten
+* welche Themen bewusst noch nicht Bestandteil dieser Stufe sind
+
+### Umgesetzter Minimal-Scope
+
+Der historische Paper-Replay wurde als separater Minimal-Scope umgesetzt.
+
+Wichtig ist: Die bestehende Paper-Runner-Logik wurde nicht veraendert.
+
+Neu hinzugekommen ist ein eigenes CLI-Skript fuer den historischen Paper-Replay:
+
+`scripts/run_historical_paper_replay.py`
+
+Das Skript unterstuetzt im ersten Umsetzungsschritt:
+
+| Bereich | Umsetzung |
+| --- | --- |
+| Replay-Stichtage | Monatliche historische Replay-Stichtage |
+| Positionsquelle | Lokale JSON-Positionsquelle |
+| Snapshot-Logik | Erzeugung beziehungsweise Auswertung von Stichtags-Snapshots |
+| Vergleichslogik | Vergleich aufeinanderfolgender Replay-Stichtage |
+| Reports | JSON-, Markdown- und Manifest-Ausgabe |
+| Sicherheitsstatus | Feste Sicherheitsfelder im Manifest |
+| Datenluecken | Dokumentation nicht vorhandener Positionsdaten als `missing_positions` |
+
+Damit wurde bewusst eine kleine, pruefbare Grundlage geschaffen.
+
+### Neue Dateien
+
+Im Rahmen der Umsetzung wurden folgende Dateien neu angelegt:
+
+| Datei | Zweck |
+| --- | --- |
+| `scripts/run_historical_paper_replay.py` | Eigenes CLI-Skript fuer den historischen Paper-Replay |
+| `tests/unit/scripts/test_run_historical_paper_replay.py` | Unit-Tests fuer Replay-Stichtage, Vergleichslogik, Proposal-Toleranz, Sicherheitsmanifest, Reportstruktur und Datenluecken |
+
+Die Umsetzung erfolgte ohne Aenderung an der bestehenden Paper-Runner-Logik.
+
+### Fachliche Einordnung des Skripts
+
+Das neue Replay-Skript ist kein echter Paper-Runner.
+
+Es startet keine Paper-Runs und erzeugt keine operative Handlung.
+
+Die erste Version arbeitet mit einer lokalen JSON-Positionsquelle. Dadurch bleibt klar getrennt:
+
+| Ebene | Bedeutung |
+| --- | --- |
+| Historischer Replay | Auswertung vorbereiteter historischer Positionsdaten |
+| Paper-Runner | Bestehender kontrollierter Paper-Betrieb |
+| Live-Betrieb | Weiterhin nicht Bestandteil des Projekts |
+
+Wenn fuer einen Replay-Stichtag keine passenden Positionsdaten vorhanden sind, wird dieser Zustand nicht versteckt oder automatisch ersetzt. Stattdessen wird der Stichtag als `missing_positions` dokumentiert.
+
+Das ist fachlich wichtig, weil Datenluecken sichtbar bleiben und nicht stillschweigend geglaettet werden.
+
+### Sicherheitsgrenzen
+
+Die Sicherheitsgrenzen aus den bisherigen Phasen wurden eingehalten.
+
+Das neue Skript:
+
+* startet keine Paper-Runs
+* nutzt keinen Broker
+* stellt keine Broker-Verbindung her
+* erzeugt keine Orders
+* erzeugt keine Ordervorschlaege
+* berechnet keine Stueckzahlen
+* berechnet keine Euro-Betraege
+* normalisiert kein Portfolio
+* erzeugt keine Investitionsfreigabe
+* erzeugt keine automatische Handlungsempfehlung
+* veraendert keine bestehende Paper-Runner-Logik
+
+Buy/Sell/Hold-Proposals bleiben weiterhin reine Delta-/Gewichtungs-Pruefsignale und sind keine Anlageempfehlungen.
+
+### Manifest und Sicherheitsstatus
+
+Das neue Skript erzeugt ein Manifest mit festen Sicherheitsfeldern.
+
+Fachlich relevante Sicherheitsfelder sind insbesondere:
+
+| Feld | Erwartung |
+| --- | --- |
+| `broker_connected` | `false` |
+| `live_trading_enabled` | `false` |
+| `orders_executed` | `false` |
+| `investment_recommendation_generated` | `false` |
+| `position_sizing_enabled` | `false` |
+| `euro_amounts_calculated` | `false` |
+| `share_quantities_calculated` | `false` |
+
+Diese Felder machen maschinenlesbar sichtbar, dass der historische Replay keine operative Ausfuehrung darstellt.
+
+### Getestete Bereiche
+
+Fuer die Minimal-Implementierung wurde ein eigener Unit-Test ergaenzt:
+
+`tests/unit/scripts/test_run_historical_paper_replay.py`
+
+Der Test deckt insbesondere folgende Bereiche ab:
+
+| Testbereich | Zweck |
+| --- | --- |
+| Stichtagsgenerierung | Monatliche Replay-Stichtage werden reproduzierbar erzeugt |
+| Symbolvergleich | Neue, entfernte und gemeinsame Symbole werden korrekt erkannt |
+| Gewichtsdeltas | Zielgewichtsaenderungen werden korrekt berechnet |
+| Proposal-Toleranz | Kleine Abweichungen bleiben innerhalb der Hold-Toleranz |
+| Proposal-Wechsel | Wechsel zwischen Buy/Sell/Hold werden korrekt gezaehlt |
+| Sicherheitsmanifest | Sicherheitsfelder bleiben auf nicht-operativem Status |
+| Reportstruktur | JSON-, Markdown- und Manifest-Struktur werden erzeugt |
+| Datenluecken | Fehlende Positionsdaten werden als `missing_positions` sichtbar gemacht |
+
+Damit ist die Kernlogik der ersten Replay-Stufe testseitig abgesichert.
+
+### Verifikation
+
+Die technische Pruefung wurde erfolgreich durchgefuehrt.
+
+Ausgefuehrt wurden:
+
+```text
+.\.venv\Scripts\python.exe -m ruff check scripts\run_historical_paper_replay.py tests\unit\scripts\test_run_historical_paper_replay.py
+```
+
+```text
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Ergebnis der Testsuite:
+
+```text
+225 passed
+```
+
+Damit ist der aktuelle Stand formal gruen.
+
+### Bewusst noch nicht enthalten
+
+Die erste technische Stufe ist bewusst minimal gehalten.
+
+Noch nicht Bestandteil dieser Umsetzung sind:
+
+| Thema | Status |
+| --- | --- |
+| echte Benchmark-Berechnung | noch nicht umgesetzt |
+| Benchmark-Performancevergleich | noch nicht umgesetzt |
+| Marktphasen-Datei | noch nicht umgesetzt |
+| automatische Marktphasen-Erkennung | nicht vorgesehen |
+| Performance-Kennzahlen | noch nicht umgesetzt |
+| Drawdown-Vergleich | noch nicht umgesetzt |
+| echte historische Paper-Run-Erzeugung | nicht umgesetzt |
+| automatische Replay-Datenbeschaffung | nicht umgesetzt |
+| mehrere Strategieprofile im Vergleich | noch nicht umgesetzt |
+| Profiloptimierung | ausgeschlossen |
+| Investitionsfreigabe | ausgeschlossen |
+
+Damit bleibt die Umsetzung bewusst auf die Replay-Grundstruktur begrenzt.
+
+### Fachliche Bewertung des Zwischenstands
+
+Der Stand nach 08.60/08.70 ist positiv, aber bewusst begrenzt.
+
+Positiv:
+
+* erster historischer Replay technisch vorbereitet
+* klare Trennung vom bestehenden Paper-Runner
+* keine operative Ausfuehrungslogik
+* Sicherheitsstatus maschinenlesbar dokumentiert
+* fehlende Positionsdaten werden sichtbar gemacht
+* Kernlogik testseitig abgesichert
+* vollstaendige Testsuite gruen
+
+Begrenzt:
+
+* noch keine echte Benchmark-Auswertung
+* noch keine Marktphasen-Einordnung
+* noch keine Performance-/Drawdown-Betrachtung
+* noch keine belastbare Replay-Datenbasis
+* noch keine Aussage zur Qualitaet von `balanced_v1` aus historischem Replay
+
+Der aktuelle Stand schafft damit eine technische Grundlage, aber noch keine fachliche Replay-Auswertung.
+
+### Abgrenzung von 08.70
+
+08.70 ist ein Dokumentations- und Kontrollabschnitt.
+
+In diesem Schritt werden nicht neu umgesetzt:
+
+* keine weiteren Codeaenderungen
+* keine neuen Tests
+* keine neuen Skripte
+* keine Paper-Runs
+* keine Replay-Laeufe
+* keine Benchmark-Berechnungen
+* keine Marktphasen-Auswertungen
+* keine Investitionsfreigabe
+* keine automatische Handlungsempfehlung
+
+08.70 haelt lediglich den erreichten technischen Zwischenstand fest.
+
+### Ergebnis von 08.70
+
+Mit 08.70 ist die erste technische Minimal-Implementierung des historischen Paper-Replays dokumentiert.
+
+Der aktuelle Stand lautet:
+
+* separates Replay-Skript vorhanden
+* eigene Unit-Tests vorhanden
+* bestehende Paper-Runner-Logik unveraendert
+* Sicherheitsgrenzen eingehalten
+* fehlende Positionsdaten werden sichtbar dokumentiert
+* Ruff-Pruefung erfolgreich
+* vollstaendige Testsuite erfolgreich
+* Ergebnis: `225 passed`
+
+Damit ist die Grundlage fuer weitere Phase-8-Schritte gelegt.
+
+Ein naechster sinnvoller Schritt waere die Planung einer kontrollierten ersten Replay-Datenbasis oder eines ersten Beispiel-Replay-Laufs mit bewusst vorbereiteten lokalen Positionsdaten.
