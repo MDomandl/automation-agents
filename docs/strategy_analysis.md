@@ -9305,3 +9305,226 @@ Der Stand lautet:
 * keine Investitionsfreigabe
 
 Phase 8 hat damit eine tragfähige Grundlage für spätere, kontrollierte Erweiterungen geschaffen.
+
+
+## 08.95 Phase-8-Abgrenzung: Vor echter historischer Positionsdatenbasis
+
+### Ziel von 08.95
+
+08.95 dokumentiert die Abgrenzung vor dem nächsten größeren Schritt in Phase 8.
+
+Bis einschließlich 08.90 wurde die Replay-Grundmechanik vorbereitet, technisch minimal umgesetzt und mit synthetischen lokalen Beispiel-Daten geprüft.
+
+Der nächste fachlich naheliegende Schritt wäre irgendwann eine echte historische Positionsdatenbasis für `balanced_v1`.
+
+Vor diesem Schritt muss jedoch klar dokumentiert werden, welche Grenzen weiterhin gelten und welche Fragen vor einer Umsetzung geklärt sein müssen.
+
+08.95 dient damit als Sicherheits- und Planungsbremse.
+
+---
+
+### Aktueller Stand vor 08.95
+
+Der aktuelle Stand aus Phase 8 lautet:
+
+| Bereich                                             | Stand                    |
+| --------------------------------------------------- | ------------------------ |
+| Fachliche Leitplanken                               | dokumentiert             |
+| Replay-Datenmodell                                  | dokumentiert             |
+| Zeitachse und Stichtagslogik                        | dokumentiert             |
+| Benchmark-Konzept                                   | dokumentiert             |
+| Technisches Umsetzungskonzept                       | dokumentiert             |
+| Minimaler Replay-Scope                              | umgesetzt                |
+| Replay-Skript                                       | vorhanden                |
+| Unit-Tests                                          | vorhanden                |
+| Lokale synthetische Beispiel-Daten                  | vorhanden                |
+| Beispiel-Replay                                     | erfolgreich durchgeführt |
+| Testsuite                                           | grün mit `225 passed`    |
+| echte historische `balanced_v1`-Positionsdatenbasis | noch nicht vorhanden     |
+| Benchmark-Berechnung                                | noch nicht vorhanden     |
+| Marktphasen-Auswertung                              | noch nicht vorhanden     |
+| Performance-/Drawdown-Auswertung                    | noch nicht vorhanden     |
+| Investitionsfreigabe                                | ausgeschlossen           |
+
+Damit ist die technische Grundlage vorhanden, aber die eigentliche historische Replay-Datenbasis noch nicht.
+
+---
+
+### Warum eine zusätzliche Abgrenzung nötig ist
+
+Der Übergang von synthetischen Beispiel-Daten zu echten historischen `balanced_v1`-Positionsdaten ist fachlich sensibel.
+
+Denn dafür müsste geklärt werden, ob und wie historische Zielpositionen erzeugt werden dürfen.
+
+Mögliche Risiken:
+
+| Risiko                               | Bedeutung                                                                                       |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| unbeabsichtigte Batch-Ausführung     | Viele historische Stichtage könnten unkontrolliert durchgerechnet werden                        |
+| Vermischung mit echtem Paper-Betrieb | Historischer Replay und echter Paper-Runner könnten unsauber vermischt werden                   |
+| unklare Datenherkunft                | Später wäre nicht mehr klar, ob Positionen synthetisch, replay-basiert oder runner-basiert sind |
+| nachträgliche Zeitraumoptimierung    | Zeitraum könnte unbewusst passend zum Ergebnis gewählt werden                                   |
+| Overfitting-Gefahr                   | Auffälligkeiten könnten zu früh zu Profilanpassungen führen                                     |
+| Scheinsicherheit                     | Historische Replay-Daten könnten zu stark als Zukunftshinweis interpretiert werden              |
+
+Deshalb soll vor einer echten historischen Positionsdatenbasis kein großer technischer Schritt ohne klare Regeln erfolgen.
+
+---
+
+### Begriff: echte historische Positionsdatenbasis
+
+Mit echter historischer Positionsdatenbasis ist in Phase 8 gemeint:
+
+* historische Stichtage werden für `balanced_v1` fachlich realistisch befüllt
+* die Zielpositionen stammen nicht mehr nur aus synthetischen Beispiel-Daten
+* die Daten sollen später für eine historische Replay-Auswertung genutzt werden
+* die Daten können Grundlage für Positionsstabilität, Deltas und Proposal-Verläufe sein
+
+Nicht gemeint ist automatisch:
+
+* Live-Trading
+* Broker-Anbindung
+* Orders
+* echte Portfolio-Ausführung
+* Investitionsfreigabe
+
+Trotzdem ist der Schritt wichtiger als die bisherige Beispielauswertung, weil die Daten näher an der echten Strategie liegen würden.
+
+---
+
+### Offene Klärungsfragen vor einer Umsetzung
+
+Vor der Erzeugung einer echten historischen Positionsdatenbasis müssen mindestens folgende Fragen geklärt werden:
+
+| Frage                                                  | Warum wichtig?                                                 |
+| ------------------------------------------------------ | -------------------------------------------------------------- |
+| Wie viele historische Stichtage sollen erzeugt werden? | Verhindert unkontrollierte Batch-Ausweitung                    |
+| Welche Stichtage sind erlaubt?                         | Verhindert nachträgliche Zeitraumoptimierung                   |
+| Wird monatlich gearbeitet?                             | Hält die Logik konsistent mit 08.30                            |
+| Welcher Zeitraum wird verwendet?                       | Muss vorab dokumentiert werden                                 |
+| Wird der bestehende Runner verwendet?                  | Risiko der Vermischung mit Paper-Runner-Logik                  |
+| Werden neue Paper-Artefakte erzeugt?                   | Muss klar von Replay-Artefakten getrennt bleiben               |
+| Wo werden Positionsdaten abgelegt?                     | Datenherkunft und Artefaktstruktur müssen nachvollziehbar sein |
+| Welche Sicherheitsfelder müssen dokumentiert werden?   | Nicht-operativer Charakter muss erhalten bleiben               |
+| Welche Tests müssen ergänzt werden?                    | Neue Datenbasis darf Kernlogik nicht destabilisieren           |
+| Wird Benchmark weiterhin ausgespart?                   | Verhindert zu große Ausbaustufe                                |
+
+Diese Fragen müssen vor einer Codex-Anweisung beantwortet oder in der Codex-Anweisung selbst eindeutig begrenzt werden.
+
+---
+
+### Keine unkontrollierte Batch-Verarbeitung
+
+Eine zentrale Grenze bleibt:
+
+> Es darf keine unkontrollierte Batch-Verarbeitung echter Paper-Runs entstehen.
+
+Insbesondere ausgeschlossen sind:
+
+* automatisches Durchlaufen vieler historischer Stichtage ohne vorher definierte Sicherheitsregeln
+* versteckter Aufruf des bestehenden Paper-Runners in Schleifen
+* Erzeugung vieler echter Paper-Reports ohne explizite Freigabe
+* Vermischung von Paper-Run-Artefakten und Replay-Artefakten
+* automatische Erweiterung des Zeitraums über den definierten Scope hinaus
+
+Falls historische Zielpositionen später technisch erzeugt werden, muss dies kontrolliert, transparent und dokumentiert erfolgen.
+
+---
+
+### Umgang mit dem bestehenden Paper-Runner
+
+Der bestehende Paper-Runner bleibt fachlich geschützt.
+
+Für spätere Schritte gilt:
+
+| Regel                                | Bedeutung                                                   |
+| ------------------------------------ | ----------------------------------------------------------- |
+| keine Änderung ohne expliziten Scope | Bestehende Paper-Runner-Logik bleibt stabil                 |
+| kein versteckter Aufruf              | Replay darf Paper-Runner nicht unerwartet starten           |
+| klare Artefakttrennung               | Paper-Reports und Replay-Reports bleiben getrennt           |
+| keine Broker-Nähe                    | Auch Paper-Runner-Aufrufe bleiben ohne Broker/Live/Orders   |
+| keine automatische Serienausführung  | Mehrere historische Stichtage nur nach definierter Freigabe |
+| Dokumentationspflicht                | Jeder neue Lauf- oder Datenpfad muss nachvollziehbar sein   |
+
+Wenn der bestehende Runner später zur Erzeugung historischer Positionen genutzt werden soll, muss dafür ein eigener, klar begrenzter Schritt definiert werden.
+
+---
+
+### Zulässige nächste Mini-Schritte
+
+Vor einer echten historischen Positionsdatenbasis sind nur kleine, kontrollierte Vorbereitungsschritte sinnvoll.
+
+Zulässig wären zum Beispiel:
+
+| Möglicher Schritt                                       | Zweck                             |
+| ------------------------------------------------------- | --------------------------------- |
+| Datenformat für echte historische Positionen definieren | Klare Struktur vor Datenerzeugung |
+| Ablageort für Replay-Positionsdaten festlegen           | Artefakte nachvollziehbar halten  |
+| Scope für erste echte Stichtage begrenzen               | Risiko kleiner halten             |
+| manuelle Stichtagsliste dokumentieren                   | Zeitraumoptimierung verhindern    |
+| Codex-Anweisung vorbereiten                             | Umsetzung sauber begrenzen        |
+| Tests für Positionsdatenformat ergänzen                 | Datenqualität absichern           |
+
+Nicht sinnvoll wäre dagegen, sofort eine große historische Replay-Serie zu starten.
+
+---
+
+### Weiterhin ausgeschlossen
+
+Auch nach 08.95 bleiben ausgeschlossen:
+
+* Broker-Anbindung
+* Live-Trading
+* echte Orders
+* Ordervorschläge
+* Stückzahlberechnung
+* Euro-Beträge
+* Portfolio-Normalisierung
+* automatische Investitionsfreigabe
+* automatische Handlungsempfehlung
+* Personen- oder Mandantenverwaltung
+* unkontrollierte Batch-Verarbeitung echter Paper-Runs
+* Parameteroptimierung
+* Benchmark-Hopping
+* nachträgliche Zeitraumoptimierung
+* Performance-/Drawdown-Aussagen ohne eigene, sauber abgegrenzte Analyse
+
+Diese Grenzen gelten unabhängig davon, ob spätere Positionsdaten synthetisch, manuell vorbereitet oder runner-basiert erzeugt werden.
+
+---
+
+### Benchmark bleibt weiterhin getrennt
+
+Eine echte historische Positionsdatenbasis ist nicht automatisch ein Benchmark-Vergleich.
+
+Benchmark-Themen bleiben weiterhin getrennt:
+
+| Thema                    | Status                 |
+| ------------------------ | ---------------------- |
+| Benchmark-Auswahl        | noch separat zu klären |
+| Benchmark-Berechnung     | noch nicht Bestandteil |
+| Relative Performance     | noch nicht Bestandteil |
+| Drawdown-Vergleich       | noch nicht Bestandteil |
+| Benchmark-Hopping-Schutz | weiterhin erforderlich |
+| Investitionsaussage      | ausgeschlossen         |
+
+Zuerst sollte eine saubere historische Positionsdatenbasis entstehen. Erst danach ist ein Benchmark-Vergleich sinnvoll.
+
+---
+
+### Ergebnis von 08.95
+
+Mit 08.95 ist dokumentiert, dass der nächste größere Schritt nicht automatisch gestartet wird.
+
+Der aktuelle Stand lautet:
+
+* Replay-Grundmechanik ist vorhanden
+* synthetische Beispielauswertung ist erfolgreich
+* echte historische `balanced_v1`-Positionsdatenbasis ist noch nicht vorhanden
+* vor deren Erstellung müssen Scope, Stichtage, Datenformat und Sicherheitsregeln geklärt werden
+* bestehende Paper-Runner-Logik bleibt geschützt
+* unkontrollierte Batch-Verarbeitung bleibt ausgeschlossen
+* Benchmark, Marktphasen, Performance und Drawdown bleiben spätere getrennte Themen
+* keine Investitionsfreigabe
+
+08.95 bildet damit die Sicherheitsgrenze zwischen der erfolgreichen Beispielauswertung und einer späteren echten historischen Replay-Datenbasis.
