@@ -8834,3 +8834,474 @@ Der aktuelle Stand lautet:
 Damit ist die Grundlage fuer weitere Phase-8-Schritte gelegt.
 
 Ein naechster sinnvoller Schritt waere die Planung einer kontrollierten ersten Replay-Datenbasis oder eines ersten Beispiel-Replay-Laufs mit bewusst vorbereiteten lokalen Positionsdaten.
+
+## 08.80 Historischer Paper-Replay: Erste lokale Replay-Datenbasis & Beispielauswertung
+
+### Ziel von 08.80
+
+08.80 prueft das neue historische Replay-Skript erstmals mit einer kleinen lokalen Positionsdatenbasis.
+
+Ziel ist ein kontrollierter Funktionstest der vorhandenen Replay-Logik. Es wurden keine echten historischen Paper-Runs gestartet und keine Strategie-/Runner-Logik zur Berechnung neuer Zielpositionen verwendet.
+
+Im Mittelpunkt stehen:
+
+* lokale Beispiel-Positionsdaten fuer mehrere historische Stichtage
+* ein einzelner Replay-Lauf gegen diese vorbereiteten Daten
+* Pruefung der erzeugten JSON-, Markdown- und Manifest-Artefakte
+* Plausibilitaetskontrolle von Datenluecken, Symbolwechseln, Gewichtsdeltas und Proposal-Pruefsignalen
+* erneute Kontrolle der Sicherheitsgrenzen
+
+### Lokale Positionsdatenbasis
+
+Angelegt wurde folgende synthetische Beispiel-Datei:
+
+`data/examples/historical_paper_replay_positions.json`
+
+Die Datei enthaelt technische Beispielgewichte fuer den Zeitraum Januar bis Juni 2024. Es handelt sich nicht um persoenliche Portfoliodaten und nicht um eine Anlageempfehlung.
+
+Der Replay-Zeitraum erzeugt sechs monatliche Stichtage:
+
+| Stichtag | Datenstatus | Zweck im Beispiel |
+| --- | --- | --- |
+| `2024-01-31` | vorhanden | Startzustand mit `ALFA`, `BETA`, `CORE` |
+| `2024-02-29` | vorhanden | `DELTA` kommt neu hinzu, `CORE` bleibt fast unveraendert |
+| `2024-03-31` | vorhanden | `BETA` faellt heraus, `GAMMA` kommt hinzu |
+| `2024-04-30` | fehlt | bewusster `missing_positions`-Fall |
+| `2024-05-31` | vorhanden | Wiedereinstieg nach Datenluecke |
+| `2024-06-30` | vorhanden | `ZETA` kommt hinzu, `GAMMA` faellt heraus |
+
+Damit deckt die lokale Datenbasis bewusst folgende Faelle ab:
+
+| Fall | Beispiel |
+| --- | --- |
+| stabiles Symbol | `CORE` bleibt ueber mehrere vorhandene Stichtage enthalten |
+| neues Symbol | `DELTA`, `GAMMA`, `EPSILON`, `ZETA` |
+| entferntes Symbol | `BETA`, `GAMMA` |
+| kleine Aenderung innerhalb der Toleranz | `CORE` von `0.200000` auf `0.200004` beziehungsweise von `0.220000` auf `0.220004` |
+| groessere Aenderung ausserhalb der Toleranz | `ALFA` von `0.30` auf `0.36`, spaeter von `0.28` auf `0.34` |
+| Datenluecke | `2024-04-30` ohne Positionsdaten |
+
+### Ausgefuehrter Replay-Lauf
+
+Ausgefuehrt wurde ausschliesslich das neue Replay-Skript mit lokaler Positionsdatei:
+
+```text
+.\.venv\Scripts\python.exe scripts\run_historical_paper_replay.py --start 2024-01-31 --end 2024-06-30 --positions-file data\examples\historical_paper_replay_positions.json --output-dir reports\historical_paper_replay
+```
+
+Der Lauf erzeugte:
+
+| Artefakt | Zweck |
+| --- | --- |
+| `reports/historical_paper_replay/historical_paper_replay.json` | Maschinenlesbarer Replay-Bericht |
+| `reports/historical_paper_replay/historical_paper_replay.md` | Lesbarer Markdown-Bericht |
+| `reports/historical_paper_replay/historical_paper_replay_manifest.json` | Manifest mit Eingaben und Sicherheitsstatus |
+
+Kompaktes Laufergebnis:
+
+```text
+Replay: as_of_dates=6 comparisons=5 warnings=3
+```
+
+### Gepruefte Vergleichslogik
+
+Alle sechs erwarteten Replay-Stichtage wurden im Report aufgefuehrt.
+
+Die vorhandenen Positionsdaten wurden als `ok` erkannt. Der bewusst ausgelassene Stichtag `2024-04-30` wurde als `missing_positions` dokumentiert und erzeugte sichtbare Warnungen im Snapshot und in den angrenzenden Vergleichen.
+
+Die Vergleichszusammenfassung zeigte:
+
+| Von | Bis | Neu | Entfernt | Gemeinsam | Proposal-Wechsel | Gewichtsspruenge | Warnungen |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `2024-01-31` | `2024-02-29` | 1 | 0 | 3 | 3 | 2 | 0 |
+| `2024-02-29` | `2024-03-31` | 1 | 1 | 3 | 4 | 3 | 0 |
+| `2024-03-31` | `2024-04-30` | 0 | 4 | 0 | 4 | 4 | 1 |
+| `2024-04-30` | `2024-05-31` | 4 | 0 | 0 | 4 | 4 | 1 |
+| `2024-05-31` | `2024-06-30` | 1 | 1 | 3 | 4 | 3 | 0 |
+
+Neue, entfernte und gemeinsame Symbole wurden plausibel erkannt. Beispiele:
+
+* `DELTA` wird im Vergleich Januar zu Februar als neues Symbol erkannt.
+* `BETA` wird im Vergleich Februar zu Maerz als entferntes Symbol erkannt.
+* `CORE` bleibt gemeinsames Symbol und zeigt kleine Deltas innerhalb der Hold-Toleranz.
+* `GAMMA` wird im Vergleich Mai zu Juni als entferntes Symbol erkannt.
+* `ZETA` wird im Vergleich Mai zu Juni als neues Symbol erkannt.
+
+Die Gewichtsdeltas wirken anhand der Beispielwerte plausibel. Kleine Aenderungen bei `CORE` bleiben `Hold`. Groessere Veraenderungen wie `ALFA` von `0.28` auf `0.34`, das Entfernen von `GAMMA` oder das Hinzukommen von `ZETA` werden als deutliche Delta-Pruefsignale sichtbar.
+
+Buy/Sell/Hold-Proposals bleiben reine Delta-/Gewichtungs-Pruefsignale. Sie wurden nicht als Ordervorschlaege, nicht als Handlungsempfehlung und nicht als Investitionsfreigabe verwendet.
+
+### Sicherheitsstatus
+
+Das Manifest blieb im nicht-operativen Sicherheitsstatus:
+
+| Feld | Wert |
+| --- | --- |
+| `runner_mode` | `historical_paper_replay` |
+| `broker_connected` | `false` |
+| `live_trading_enabled` | `false` |
+| `orders_executed` | `false` |
+| `investment_recommendation_generated` | `false` |
+| `position_sizing_enabled` | `false` |
+| `euro_amounts_calculated` | `false` |
+| `share_quantities_calculated` | `false` |
+
+Damit bleibt klar dokumentiert, dass keine Broker-, Live-, Order-, Stueckzahl- oder Euro-Logik verwendet wurde.
+
+### Verifikation
+
+Ausgefuehrt wurden:
+
+```text
+.\.venv\Scripts\python.exe -m ruff check scripts\run_historical_paper_replay.py tests\unit\scripts\test_run_historical_paper_replay.py
+```
+
+```text
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Testergebnis:
+
+```text
+225 passed
+```
+
+### Grenzen von 08.80
+
+08.80 bleibt ein kleiner lokaler Funktionstest.
+
+Ausdruecklich nicht enthalten sind:
+
+* keine echten Paper-Runs
+* kein Aufruf von `scripts/run_bt_run_agent.py --runner-mode paper`
+* keine Aenderung an bestehender Paper-Runner-Logik
+* keine Benchmark-Berechnung
+* keine Marktphasen-Auswertung
+* keine Performance- oder Drawdown-Aussage
+* keine Profiloptimierung
+* keine Broker-Anbindung
+* kein Live-Trading
+* keine Orders
+* keine Ordervorschlaege
+* keine Stueckzahlberechnung
+* keine Euro-Betraege
+* keine Portfolio-Normalisierung
+* keine Investitionsfreigabe
+* keine automatische Handlungsempfehlung
+
+### Ergebnis von 08.80
+
+Das neue Replay-Skript funktioniert mit einer kleinen lokalen Positionsdatenbasis grundsaetzlich nachvollziehbar.
+
+Datenluecken werden sichtbar als `missing_positions` dokumentiert. Symbolwechsel, Gewichtsdeltas und Proposal-Pruefsignale sind anhand der Beispiel-Daten plausibel nachvollziehbar. Die Sicherheitsgrenzen bleiben erhalten.
+
+Die vollstaendige Testsuite bleibt gruen.
+
+## 08.90 Phase-8-Zwischenabschluss & nächstes Vorgehen
+
+### Ziel von 08.90
+
+08.90 fasst den bisherigen Stand von Phase 8 zusammen.
+
+Phase 8 behandelt den historischen Paper-Replay und die spätere Benchmark-Einordnung. Ziel war bisher, nicht sofort eine große technische Replay- oder Benchmark-Maschinerie zu bauen, sondern schrittweise vorzugehen:
+
+1. fachliche Leitplanken dokumentieren
+2. technischen Minimal-Scope definieren
+3. erste kontrollierte Umsetzung vornehmen
+4. Beispiel-Replay mit lokalen synthetischen Daten prüfen
+5. Sicherheitsgrenzen dauerhaft sichtbar halten
+
+Mit 08.90 wird dieser Zwischenstand dokumentiert und das weitere Vorgehen abgegrenzt.
+
+---
+
+### Bisheriger Stand in Phase 8
+
+Phase 8 wurde bisher in mehreren klar getrennten Schritten aufgebaut.
+
+| Abschnitt | Inhalt                                                 | Status    |
+| --------- | ------------------------------------------------------ | --------- |
+| 08.10     | Zielbild, Methodik & Grenzen                           | erledigt  |
+| 08.20     | Datenmodell & Auswertungsstruktur                      | erledigt  |
+| 08.30     | Replay-Zeitachse, Stichtagslogik & Marktphasen         | erledigt  |
+| 08.40     | Benchmark-Konzept & Vergleichslogik                    | erledigt  |
+| 08.50     | Technisches Umsetzungskonzept ohne Implementierung     | erledigt  |
+| 08.60     | Minimaler Implementierungsscope                        | umgesetzt |
+| 08.70     | Umsetzungskontrolle & erster technischer Zwischenstand | erledigt  |
+| 08.80     | Erste lokale Replay-Datenbasis & Beispielauswertung    | umgesetzt |
+
+Damit liegt für Phase 8 inzwischen nicht nur Dokumentation vor, sondern auch ein erstes technisches Replay-Werkzeug mit kontrollierter Beispielauswertung.
+
+---
+
+### Fachliche Leitplanken
+
+Die fachlichen Leitplanken wurden in 08.10 bis 08.50 dokumentiert.
+
+Zentrale Punkte:
+
+* historischer Replay ersetzt keinen echten Paper-Betrieb
+* Replay bleibt rückblickende Simulation beziehungsweise Auswertung
+* Backtest, Replay und echter Paper-Betrieb bleiben klar getrennt
+* Benchmark dient nur der Einordnung, nicht der Entscheidung
+* Marktphasen erklären Auffälligkeiten, optimieren aber keine Ergebnisse
+* Buy/Sell/Hold-Proposals bleiben reine Delta-/Gewichtungs-Prüfsignale
+* Overfitting, Benchmark-Hopping und nachträgliche Zeitraumoptimierung bleiben ausgeschlossen
+* aus Phase 8 entsteht keine Investitionsfreigabe
+
+Diese Leitplanken bleiben auch für spätere technische Schritte verbindlich.
+
+---
+
+### Technischer Minimalstand
+
+In 08.60 wurde ein minimaler technischer Umsetzungsscope definiert und anschließend umgesetzt.
+
+Neu hinzugekommen ist:
+
+`scripts/run_historical_paper_replay.py`
+
+Das Skript ist ein separates CLI-Werkzeug für den historischen Paper-Replay.
+
+Es unterstützt im aktuellen Minimalstand:
+
+| Bereich           | Umsetzung                                               |
+| ----------------- | ------------------------------------------------------- |
+| Replay-Stichtage  | monatliche Stichtage                                    |
+| Positionsquelle   | lokale JSON-Positionsdaten                              |
+| Snapshot-Logik    | Stichtagsbezogene Auswertung vorhandener Positionsdaten |
+| Vergleichslogik   | Vergleich aufeinanderfolgender Stichtage                |
+| Symbolanalyse     | neue, entfernte und gemeinsame Symbole                  |
+| Gewichtsanalyse   | Zielgewichtsänderungen und Deltas                       |
+| Proposal-Logik    | Buy/Sell/Hold als reine Delta-Prüfsignale               |
+| Datenlücken       | sichtbare Dokumentation als `missing_positions`         |
+| Reports           | JSON-, Markdown- und Manifest-Ausgabe                   |
+| Sicherheitsstatus | feste nicht-operative Sicherheitsfelder                 |
+
+Wichtig: Die bestehende Paper-Runner-Logik wurde nicht verändert.
+
+---
+
+### Testabdeckung
+
+Für das neue Replay-Werkzeug wurde ein eigener Unit-Test ergänzt:
+
+`tests/unit/scripts/test_run_historical_paper_replay.py`
+
+Getestete Bereiche:
+
+| Testbereich          | Zweck                                           |
+| -------------------- | ----------------------------------------------- |
+| Stichtagsgenerierung | monatliche Stichtage reproduzierbar erzeugen    |
+| Symbolvergleich      | neue, entfernte und gemeinsame Symbole erkennen |
+| Gewichtsdeltas       | Zielgewichtsänderungen korrekt berechnen        |
+| Proposal-Toleranz    | kleine Abweichungen korrekt als Hold behandeln  |
+| Proposal-Wechsel     | Wechsel zwischen Buy/Sell/Hold korrekt zählen   |
+| Sicherheitsmanifest  | nicht-operative Sicherheitsfelder absichern     |
+| Reportstruktur       | JSON-/Markdown-/Manifest-Ausgabe prüfen         |
+| Datenlücken          | `missing_positions` sichtbar dokumentieren      |
+
+Die vollständige Testsuite blieb grün.
+
+Letzter dokumentierter Stand:
+
+```text
+225 passed
+```
+
+---
+
+### Erste lokale Replay-Datenbasis
+
+In 08.80 wurde eine kleine lokale synthetische Replay-Datenbasis angelegt:
+
+`data/examples/historical_paper_replay_positions.json`
+
+Diese Datenbasis enthält sechs monatliche Stichtage.
+
+Ein Stichtag wurde bewusst ohne Positionsdaten angelegt:
+
+`2024-04-30`
+
+Damit konnte geprüft werden, ob fehlende Positionsdaten sichtbar und nachvollziehbar als `missing_positions` dokumentiert werden.
+
+Die Daten sind synthetisch und stellen keine echten persönlichen Portfolio- oder Handelsdaten dar.
+
+---
+
+### Beispiel-Replay aus 08.80
+
+Das Replay-Skript wurde gegen die lokale JSON-Positionsdatei ausgeführt.
+
+Erzeugte Artefakte:
+
+| Artefakt                                | Zweck                                       |
+| --------------------------------------- | ------------------------------------------- |
+| `historical_paper_replay.json`          | maschinenlesbarer Replay-Report             |
+| `historical_paper_replay.md`            | lesbarer Markdown-Report                    |
+| `historical_paper_replay_manifest.json` | Manifest mit Eingaben und Sicherheitsstatus |
+
+Der Lauf erfolgte ausschließlich gegen die lokale JSON-Datei.
+
+Es gab keinen Aufruf von:
+
+```text
+scripts/run_bt_run_agent.py --runner-mode paper
+```
+
+Damit wurden keine echten Paper-Runs gestartet.
+
+---
+
+### Beobachtungen aus der Beispielauswertung
+
+Die Beispielauswertung aus 08.80 ergab:
+
+| Kennzahl / Beobachtung     | Ergebnis                                      |
+| -------------------------- | --------------------------------------------- |
+| `as_of_dates`              | 6                                             |
+| `comparisons`              | 5                                             |
+| `warnings`                 | 3                                             |
+| bewusst fehlender Stichtag | `2024-04-30`                                  |
+| Datenlückenstatus          | `missing_positions` korrekt dokumentiert      |
+| neue Symbole               | z. B. DELTA und ZETA                          |
+| entfernte Symbole          | z. B. BETA und GAMMA                          |
+| gemeinsame Symbole         | z. B. CORE                                    |
+| kleine CORE-Deltas         | bleiben Hold                                  |
+| größere Deltas             | erzeugen technische Buy/Sell/Hold-Prüfsignale |
+| Sicherheitsfelder          | korrekt nicht-operativ                        |
+
+Die Beobachtungen zeigen, dass die Grundmechanik des Replay-Werkzeugs mit lokalen Beispiel-Daten plausibel funktioniert.
+
+---
+
+### Sicherheitsrahmen
+
+Die bisherigen Sicherheitsgrenzen wurden eingehalten.
+
+Weiterhin ausgeschlossen sind:
+
+* Broker-Anbindung
+* Live-Trading
+* echte Orders
+* Ordervorschläge
+* Stückzahlberechnung
+* Euro-Beträge
+* Portfolio-Normalisierung
+* automatische Investitionsfreigabe
+* automatische Handlungsempfehlung
+* Personen- oder Mandantenverwaltung
+* Batch-Verarbeitung echter Paper-Runs ohne Sicherheitsregeln
+* Parameteroptimierung
+* Benchmark-Hopping
+* nachträgliche Zeitraumoptimierung
+
+Das Manifest dokumentiert weiterhin, dass keine operative Ausführung stattfindet.
+
+---
+
+### Keine echten Paper-Runs in 08.80
+
+Für 08.80 wurde bewusst kein echter Paper-Run gestartet.
+
+Mit echtem Paper-Run ist im Projektkontext gemeint:
+
+* der bestehende Paper-Runner wird gestartet
+* `scripts/run_bt_run_agent.py --runner-mode paper` wird ausgeführt
+* die Strategie-/Runner-Logik berechnet aktiv neue Zielpositionen
+* neue echte Paper-Artefakte wie `paper_run_report.json` entstehen
+
+Das war in 08.80 ausdrücklich nicht Bestandteil.
+
+Stattdessen wurde nur das neue Replay-Skript mit vorbereiteten lokalen synthetischen Positionsdaten geprüft.
+
+---
+
+### Aktuelle fachliche Bewertung
+
+Der aktuelle Stand von Phase 8 ist positiv, aber bewusst begrenzt.
+
+Positiv:
+
+* fachliche Leitplanken sind dokumentiert
+* technischer Minimal-Scope ist umgesetzt
+* erstes Replay-Skript ist vorhanden
+* Unit-Tests sind vorhanden
+* vollständige Testsuite ist grün
+* lokale Beispielauswertung funktioniert plausibel
+* Datenlücken werden sichtbar dokumentiert
+* Sicherheitsgrenzen bleiben erhalten
+* bestehende Paper-Runner-Logik blieb unverändert
+
+Begrenzt:
+
+* noch keine echte historische Positionsdatenbasis aus `balanced_v1`
+* noch keine echte Benchmark-Berechnung
+* noch keine Marktphasen-Einordnung im Replay
+* noch keine Performance-Kennzahlen
+* noch kein Drawdown-Vergleich
+* noch keine belastbare Aussage über die historische Qualität von `balanced_v1`
+* keine Investitionsfreigabe
+
+Der aktuelle Stand beweist damit die Replay-Grundmechanik, aber noch nicht die fachliche Qualität des Strategieprofils im historischen Replay.
+
+---
+
+### Sinnvolle nächste Schritte
+
+Nach 08.90 sind mehrere Anschlussrichtungen denkbar.
+
+| Möglicher Schritt                                 | Ziel                                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| echte historische Positionsdatenbasis vorbereiten | `balanced_v1`-Replay später mit realistischeren historischen Zielpositionen prüfen |
+| Benchmark-Erweiterung planen                      | transparente Vergleichslogik ergänzen                                              |
+| Marktphasen-Datei vorbereiten                     | Replay-Zeiträume fachlich einordnen                                                |
+| Performance-/Drawdown-Stufe planen                | erst nach stabiler Positions- und Benchmark-Basis                                  |
+| Replay-Report erweitern                           | zusätzliche Zusammenfassungen und Warnhinweise ergänzen                            |
+| Phase-8-Zwischenabschluss stabilisieren           | aktuellen Stand ohne weitere Technik konsolidieren                                 |
+
+Der nächste Schritt sollte weiterhin klein und kontrolliert bleiben.
+
+---
+
+### Empfohlene nächste Richtung
+
+Der sinnvollste nächste Schritt ist nicht sofort eine große Benchmark- oder Performance-Erweiterung.
+
+Fachlich naheliegend ist zunächst:
+
+**kontrollierte Vorbereitung einer echten historischen Positionsdatenbasis für `balanced_v1`**
+
+Dabei muss weiterhin geklärt bleiben:
+
+* ob und wie historische Zielpositionen erzeugt werden dürfen
+* ob dafür der bestehende Runner verwendet werden darf
+* ob einzelne manuelle Stichtage ausreichend sind
+* wie verhindert wird, dass unbeabsichtigt Batch-Paper-Runs entstehen
+* wie Sicherheitsgrenzen im Manifest und in der Dokumentation erhalten bleiben
+
+Alternativ kann vor einer solchen Datenbasis zuerst ein weiterer Konzeptschritt erfolgen, der genau diese Fragen beantwortet.
+
+---
+
+### Ergebnis von 08.90
+
+Mit 08.90 ist Phase 8 bis zum aktuellen Zwischenstand sauber dokumentiert.
+
+Der Stand lautet:
+
+* 08.10 bis 08.50 fachlich abgeschlossen
+* 08.60 Minimal-Scope technisch umgesetzt
+* 08.70 Umsetzungskontrolle dokumentiert
+* 08.80 lokale Beispielauswertung durchgeführt und dokumentiert
+* Replay-Grundmechanik funktioniert mit synthetischen Daten plausibel
+* Datenlücken werden sichtbar als `missing_positions` dokumentiert
+* Sicherheitsgrenzen bleiben eingehalten
+* vollständige Testsuite grün mit `225 passed`
+* keine echten Paper-Runs
+* keine Benchmark-Berechnung
+* keine Marktphasen-Auswertung
+* keine Performance- oder Drawdown-Aussage
+* keine Investitionsfreigabe
+
+Phase 8 hat damit eine tragfähige Grundlage für spätere, kontrollierte Erweiterungen geschaffen.
