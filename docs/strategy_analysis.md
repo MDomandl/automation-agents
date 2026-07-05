@@ -9528,3 +9528,118 @@ Der aktuelle Stand lautet:
 * keine Investitionsfreigabe
 
 08.95 bildet damit die Sicherheitsgrenze zwischen der erfolgreichen Beispielauswertung und einer späteren echten historischen Replay-Datenbasis.
+
+## 09.10 Zielbild, Datenherkunft & Sicherheitsrahmen
+
+### Ziel von 09.10
+
+09.10 startet Phase 9 bewusst mit Scope- und Sicherheitsklärung.
+
+Ziel ist noch nicht die Erzeugung einer echten historischen `balanced_v1`-Positionsdatenbasis. Stattdessen wird festgehalten, was eine solche Datenbasis später leisten soll, aus welchen vorhandenen Quellen sie entstehen darf, welche Strukturfragen vorher geklärt werden müssen und welche Sicherheitsregeln zwingend gelten.
+
+### Zielbild der historischen `balanced_v1`-Positionsdatenbasis
+
+Eine spätere historische `balanced_v1`-Positionsdatenbasis soll eine nachvollziehbare lokale Datenbasis historischer Zielpositionen für `balanced_v1` liefern.
+
+Sie dient zunächst nur der Analyse-, Replay- und Dokumentationsfähigkeit.
+
+Sie ist ausdrücklich:
+
+* keine Investitionsfreigabe
+* keine Performancebewertung
+* keine Benchmarkbewertung
+* keine Drawdownbewertung
+* keine Renditebewertung
+* keine Grundlage für automatische Orders
+
+Die Datenbasis soll später helfen, historische Zielpositionen transparent zu prüfen und im Replay-Kontext nachvollziehbar zu dokumentieren. Sie darf nicht als operative Entscheidungsschicht verstanden werden.
+
+### Abgrenzung zu bisherigen synthetischen Replay-Daten
+
+Phase 8 hat die technische Replay-Grundmechanik mit synthetischen beziehungsweise bewusst konstruierten Daten geprüft.
+
+Diese Daten waren absichtlich klein, kontrolliert und fachlich so gestaltet, dass bestimmte technische Fälle sichtbar werden:
+
+* neue Symbole
+* entfernte Symbole
+* gemeinsame Symbole
+* kleine Gewichtsdeltas innerhalb der Toleranz
+* größere Gewichtsdeltas außerhalb der Toleranz
+* fehlende Positionsdaten als `missing_positions`
+
+Phase 9 soll nun klären, wie eine echte historische Datenbasis entstehen könnte.
+
+Der Übergang von synthetischen Daten zu echten historischen `balanced_v1`-Daten ist fachlich relevant und darf nicht nebenbei passieren. Echte historische Daten können stärker als Analysegrundlage wahrgenommen werden und benötigen deshalb klare Herkunft, reproduzierbare Struktur und harte Sicherheitsgrenzen.
+
+### Mögliche Datenherkunft
+
+Eine spätere historische Positionsdatenbasis darf nur aus vorhandenen, reproduzierbaren lokalen Backtest-/Runner-Artefakten entstehen.
+
+Mögliche Quellen sind:
+
+| Quelle | Einordnung |
+| --- | --- |
+| vorhandene `balanced_v1`-Run-Bundles | nur wenn Herkunft, Zeitraum und Parameter nachvollziehbar sind |
+| vorhandene Manifest-Artefakte | zur Dokumentation von Run-Kontext und Reproduzierbarkeit |
+| vorhandene Selection-Artefakte | zur Ableitung historischer Zielpositionen, sofern eindeutig interpretierbar |
+| vorhandene Weight-Artefakte | zur Ableitung historischer Zielgewichte, sofern eindeutig interpretierbar |
+| explizit erzeugte historische Einzelstichtage | nur sofern sie später separat freigegeben werden |
+
+Ausgeschlossen bleibt in 09.10:
+
+* keine Batch-Erzeugung
+* keine automatische Massenerzeugung
+* keine stillschweigende Neuerzeugung fehlender Daten
+* keine nachträgliche Auffüllung von Datenlücken ohne dokumentierte Freigabe
+* keine Vermischung synthetischer Beispiel-Daten mit echten historischen Zielpositionen
+
+Wenn historische Einzelstichtage später neu erzeugt werden sollen, muss das als eigener Scope freigegeben und dokumentiert werden.
+
+### Zu klärende Strukturfragen
+
+Vor einer echten Erzeugung müssen mindestens folgende Strukturfragen geklärt werden:
+
+| Frage | Warum sie geklärt werden muss |
+| --- | --- |
+| welches Datenformat verwendet wird | JSON, JSONL oder eine andere Struktur müssen vorab feststehen |
+| welche Felder Pflichtfelder sind | spätere Auswertungen brauchen stabile Mindestinformationen |
+| wie `as_of` / Stichtage abgebildet werden | historische Zuordnung muss eindeutig bleiben |
+| ob pro Stichtag eine Datei oder eine Sammeldatei sinnvoller ist | Wartbarkeit, Review und Reproduzierbarkeit hängen davon ab |
+| wie fehlende Stichtage dokumentiert werden | Datenlücken dürfen nicht stillschweigend verschwinden |
+| wie Datenherkunft sichtbar bleibt | Quelle, Run-Kontext und Parameter müssen prüfbar bleiben |
+| wie Reproduzierbarkeit im Artefakt sichtbar bleibt | spätere Replay-Ergebnisse müssen erklärbar bleiben |
+| wie Verwechslung mit aktuellem Paper-Betrieb verhindert wird | historische Analyse darf nicht wie operative Paper-Entscheidung wirken |
+
+Zusätzlich muss festgelegt werden, wie synthetische Beispiel-Daten, echte historische Daten und spätere Reports klar voneinander getrennt werden.
+
+### Sicherheitsrahmen
+
+Für Phase 9 gilt weiterhin ein harter Sicherheitsrahmen.
+
+Zwingende Regeln:
+
+* keine unkontrollierte Batch-Verarbeitung
+* keine echten Paper-Runs ohne explizite Freigabe
+* keine Änderung an bestehender Paper-Runner-Logik
+* keine Broker-Logik
+* keine Live-Trading-Logik
+* keine Order-Logik
+* keine Stückzahlberechnung
+* keine Euro-Berechnung
+* keine Depotgrößenlogik
+* keine automatische Normalisierung von Portfolio-Gewichten
+* keine Benchmark-Aussage ohne separaten Scope
+* keine Performance-Aussage ohne separaten Scope
+* keine Drawdown-Aussage ohne separaten Scope
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+Buy/Sell/Hold- oder Delta-Signale dürfen, falls sie später aus historischen Daten abgeleitet werden, weiterhin nur technische Prüf- und Vergleichssignale sein. Sie dürfen nicht als Ordervorschläge, Handlungsempfehlungen oder Anlageberatung dargestellt werden.
+
+### Ergebnis von 09.10
+
+Phase 9 startet bewusst mit Scope- und Sicherheitsklärung.
+
+Eine echte historische `balanced_v1`-Positionsdatenbasis ist noch nicht erzeugt.
+
+Der nächste sinnvolle Schritt wäre 09.20 zur Festlegung eines minimalen Datenformats und der Stichtagslogik.
