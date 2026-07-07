@@ -9643,3 +9643,156 @@ Phase 9 startet bewusst mit Scope- und Sicherheitsklärung.
 Eine echte historische `balanced_v1`-Positionsdatenbasis ist noch nicht erzeugt.
 
 Der nächste sinnvolle Schritt wäre 09.20 zur Festlegung eines minimalen Datenformats und der Stichtagslogik.
+
+## 09.20 Minimales Datenformat & Stichtagsmodell
+
+### Ziel von 09.20
+
+09.20 beschreibt ein minimales fachliches Datenformat und ein klares Stichtagsmodell für eine spätere historische `balanced_v1`-Positionsdatenbasis.
+
+Auch dieser Schritt bleibt reine Dokumentation. Es wird weiterhin keine echte historische Positionsdatenbasis erzeugt.
+
+### Zweck des minimalen Datenformats
+
+Das Format soll später historische Zielpositionen von `balanced_v1` nachvollziehbar speichern können.
+
+Es soll bewusst minimal bleiben und nur die Informationen enthalten, die für Analyse, Replay und Vergleichbarkeit notwendig sind.
+
+Das Datenformat soll unterstützen:
+
+* nachvollziehbare historische Zielpositionen
+* reproduzierbare Stichtagszuordnung
+* Vergleich von Symbolen und Zielgewichten über Zeit
+* Sichtbarkeit von Datenherkunft und Datenstatus
+* spätere Replay- und Dokumentationsfähigkeit
+
+Nicht Bestandteil des Formats sind:
+
+* Broker-Logik
+* Order-Logik
+* Stückzahlberechnung
+* Euro-Beträge
+* Depotgrößenlogik
+* Performance-Logik
+* Benchmark-Logik
+* Drawdown-Logik
+
+Das Format beschreibt Zielgewichte als Analyse- und Replay-Daten, nicht als operative Handelsdaten.
+
+### Minimale Pflichtfelder pro Position
+
+Als fachliches Zielmodell sollte jede historische Position mindestens folgende Felder enthalten:
+
+| Feld | Bedeutung | Hinweis |
+| --- | --- | --- |
+| `as_of` | historischer Stichtag der Zielpositionen | muss eindeutig und reproduzierbar sein |
+| `strategy_profile` | Strategieprofil der Position | erwarteter Wert zunächst `balanced_v1`, um Profilverwechslungen zu vermeiden |
+| `symbol` | Wertpapier-/Ticker-Symbol | normalisierte Schreibweise, zum Beispiel uppercase |
+| `target_weight` | Zielgewicht der Position | rein relatives Gewicht, keine Stückzahl, kein Eurobetrag, keine Ordermenge |
+| `rank` oder `selection_rank` | Ranginformation der Auswahl | optional, aber fachlich sinnvoll, sofern aus vorhandenen Artefakten reproduzierbar ableitbar |
+| `source_run_id` | Quellenreferenz auf den historischen Run | verweist auf das zugrunde liegende Run-/Artefakt-Bundle |
+| `source_artifact` | konkrete Artefaktquelle | verweist auf Datei oder Artefaktart, aus der die Position stammt |
+
+`target_weight` darf nicht als Ordergröße interpretiert werden. Es beschreibt nur ein relatives Zielgewicht innerhalb eines historischen Analysezustands.
+
+`rank` beziehungsweise `selection_rank` sollte nur aufgenommen werden, wenn die Information aus vorhandenen Artefakten eindeutig und reproduzierbar ableitbar ist. Falls nicht, darf sie nicht geraten oder nachträglich konstruiert werden.
+
+### Minimale Metadaten pro Stichtag
+
+Zusätzlich zu den Positionszeilen sind pro Stichtag Metadaten sinnvoll.
+
+Minimales fachliches Metadatenmodell:
+
+| Feld | Bedeutung |
+| --- | --- |
+| `as_of` | historischer Stichtag |
+| `strategy_profile` | erwartetes Strategieprofil, zunächst `balanced_v1` |
+| `generated_from` | Beschreibung, aus welcher Art Quelle das historische Artefakt erzeugt wurde |
+| `source_run_id` | Referenz auf den zugrunde liegenden historischen Run |
+| `source_artifacts` | Liste der verwendeten Dateien oder Artefaktarten |
+| `created_at` | Zeitpunkt der Erzeugung des historischen Datenartefakts |
+| `data_status` | Status wie `complete`, `partial` oder `missing_source` |
+
+Wichtig: `created_at` beschreibt nur die Erzeugung des historischen Datenartefakts. Es ist nicht der historische Stichtag selbst und darf nicht mit `as_of` verwechselt werden.
+
+`data_status` soll Datenlücken sichtbar machen. Fehlende oder nur teilweise verfügbare Quellen dürfen nicht als vollständiger Stichtag dargestellt werden.
+
+### Stichtagsmodell
+
+Das Stichtagsmodell muss explizit und kontrolliert bleiben.
+
+Grundregeln:
+
+* Jeder Stichtag muss explizit angegeben sein.
+* Es darf keine implizite `latest`-Logik verwendet werden.
+* Fehlende Stichtage dürfen nicht stillschweigend erzeugt werden.
+* Fehlende Stichtage dürfen nicht stillschweigend übersprungen werden.
+* Fehlende Daten sollen sichtbar dokumentiert werden.
+* Stichtage müssen später kontrolliert ausgewählt werden.
+* Stichtage dürfen nicht durch unkontrollierte Batch-Verarbeitung entstehen.
+* Für jeden Stichtag muss nachvollziehbar bleiben, welche Quelle verwendet wurde.
+
+Ein späterer historischer Datensatz sollte daher nicht nur Positionen enthalten, sondern auch sichtbar machen, welche Stichtage geplant, vorhanden, unvollständig oder fehlend sind.
+
+Damit bleibt erkennbar, ob ein Replay-Verlauf auf vollständigen historischen Quellen beruht oder ob Datenlücken bestehen.
+
+### Datei- oder Sammelmodell
+
+Noch offen ist, welches konkrete Dateimodell später verwendet werden soll.
+
+Mögliche Varianten:
+
+| Modell | Vorteile | Nachteile |
+| --- | --- | --- |
+| eine Datei pro Stichtag | besser isolierbar und auditierbar, einzelne Stichtage leichter prüfbar | mehr Dateien, zusätzlicher Index sinnvoll |
+| eine Sammeldatei mit mehreren Stichtagen | leichter auszuwerten, kompakte Weitergabe | höheres Risiko versehentlicher Vermischung oder stiller Änderungen |
+| Stichtagsdateien plus Index-/Manifest-Datei | gute Trennung einzelner Stichtage, zugleich Übersicht über Status und fehlende Stichtage | etwas mehr Struktur und Pflegeaufwand |
+
+Es soll in 09.20 noch keine endgültige technische Entscheidung erzwungen werden.
+
+Eine vorsichtige Präferenz ist jedoch erkennbar: Stichtagsdateien plus Manifest/Index wirken für dieses Projekt zunächst am sichersten. Dieses Modell trennt einzelne historische Stichtage sauber und kann gleichzeitig über einen Index dokumentieren, welche Stichtage vorhanden, teilweise vorhanden oder fehlend sind.
+
+### Abgrenzung zum Paper-Runner
+
+Historische Positionsdaten sind nicht der aktuelle Paper-Runner-Zustand.
+
+Sie dürfen nicht als Portfolio-CSV für echte Paper-Runs missverstanden werden.
+
+Sie dürfen keine automatische Proposal-, Order- oder Ausführungslogik auslösen.
+
+Eine spätere Nutzung für Replay oder Analyse braucht einen separaten Scope.
+
+Die historische Datenbasis soll ausschließlich Analyse- und Dokumentationsdaten enthalten. Sie darf nicht als operative Eingabe für aktuelle Paper-Runs, Live-Prozesse oder Broker-nahe Abläufe verwendet werden.
+
+### Sicherheitsrahmen
+
+Für 09.20 wird der Sicherheitsrahmen bestätigt:
+
+* keine echte historische Datenbasis erzeugen
+* keine Beispielartefakte erzeugen, die wie echte historische Daten wirken
+* keine Runs starten
+* keine Batch-Verarbeitung
+* keine Änderung an Paper-Runner-Logik
+* keine Broker-Logik
+* keine Live-Trading-Logik
+* keine Order-Logik
+* keine Stückzahlberechnung
+* keine Euro-Berechnung
+* keine Depotgrößenlogik
+* keine Benchmark-Aussage
+* keine Performance-Aussage
+* keine Drawdown-Aussage
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+Damit bleibt 09.20 bewusst ein fachlicher Modellierungsschritt ohne operative Umsetzung.
+
+### Ergebnis von 09.20
+
+Ein minimales fachliches Datenmodell ist beschrieben.
+
+Ein vorsichtiges Stichtagsmodell ist beschrieben.
+
+Es wurde noch keine echte historische `balanced_v1`-Positionsdatenbasis erzeugt.
+
+Der nächste sinnvolle Schritt wäre 09.30 zur Festlegung einer Verzeichnis-/Namenskonvention und eines Manifest-/Index-Konzepts.
