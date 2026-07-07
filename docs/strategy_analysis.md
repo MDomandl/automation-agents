@@ -9796,3 +9796,156 @@ Ein vorsichtiges Stichtagsmodell ist beschrieben.
 Es wurde noch keine echte historische `balanced_v1`-Positionsdatenbasis erzeugt.
 
 Der nächste sinnvolle Schritt wäre 09.30 zur Festlegung einer Verzeichnis-/Namenskonvention und eines Manifest-/Index-Konzepts.
+
+## 09.30 Verzeichnis-/Namenskonvention & Manifest-/Index-Konzept
+
+### Ziel von 09.30
+
+09.30 dokumentiert ein vorsichtiges Konzept, wie eine spaetere historische `balanced_v1`-Positionsdatenbasis im Repository oder lokalen Arbeitsbaum organisiert werden koennte.
+
+Auch dieser Schritt bleibt reine Dokumentation. Es wird weiterhin keine echte historische Positionsdatenbasis erzeugt.
+
+### Zweck der Verzeichnis- und Namenskonvention
+
+Eine klare Verzeichnis- und Namenskonvention soll spaeter verhindern, dass historische Positionsdaten mit anderen Projektartefakten verwechselt werden.
+
+Sie soll insbesondere sicherstellen:
+
+* historische Positionsdaten sind eindeutig von Paper-Runner-Artefakten, aktuellen Portfolios und Reports unterscheidbar
+* die Struktur ist auditierbar, reproduzierbar und fuer Human Review geeignet
+* die Struktur erzwingt keine automatische Verarbeitung
+* fehlende, partielle und vollstaendige Stichtage werden sichtbar
+
+Die Konvention dient damit vor allem Nachvollziehbarkeit und Abgrenzung. Sie ist keine Freigabe zur Datenerzeugung und keine technische Pflicht fuer automatische Prozesse.
+
+### Vorsichtige Zielstruktur
+
+Als fachliches Zielbild waere spaeter eine klar abgegrenzte Struktur denkbar:
+
+```text
+data/historical_positions/balanced_v1/
+  positions/
+  manifest.json
+  README.md
+```
+
+Moegliche Bedeutung der Elemente:
+
+| Element | Zweck |
+| --- | --- |
+| `positions/` | Ablage einzelner Stichtagsdateien, sofern spaeter freigegeben |
+| `manifest.json` oder `index.json` | Uebersicht ueber vorhandene, fehlende oder partielle Stichtage |
+| optional `README.md` | Warnhinweise, Scope, Herkunftsregeln und Nutzungsgrenzen |
+
+Diese Struktur ist in 09.30 nur ein Konzept.
+
+Es sollen in 09.30 noch keine Verzeichnisse oder Dateien angelegt werden. Eine spaetere Anlage braucht separaten Scope.
+
+### Namenskonvention fuer Stichtagsdateien
+
+Eine spaetere Stichtagsdatei sollte den Stichtag und das Strategieprofil bereits im Dateinamen eindeutig sichtbar machen.
+
+Moegliche Namenskonventionen:
+
+```text
+positions_YYYY-MM-DD_balanced_v1.json
+YYYY-MM-DD_balanced_v1_positions.json
+```
+
+Grundregeln:
+
+* der Stichtag muss im Dateinamen explizit sichtbar sein
+* das Strategieprofil muss im Dateinamen sichtbar sein
+* der Dateiname darf keine `latest`-Semantik enthalten
+* der Dateiname soll keine Paper-Run- oder Portfolio-CSV-Verwechslung beguenstigen
+
+Damit waere zum Beispiel erkennbar, dass eine Datei einen historischen Analyse-Stichtag fuer `balanced_v1` beschreibt und nicht den aktuellen Paper-Zustand oder eine manuelle Portfolio-Referenz.
+
+### Manifest-/Index-Konzept
+
+Ein Manifest oder Index waere spaeter sinnvoll, um den Zustand der historischen Positionsdatenbasis pro Stichtag sichtbar zu machen.
+
+Mindestens folgende Informationen sollten pro Stichtag dokumentierbar sein:
+
+| Feld | Bedeutung |
+| --- | --- |
+| `as_of` | historischer Stichtag |
+| `strategy_profile` | Strategieprofil, zunaechst `balanced_v1` |
+| `status` | Status des Stichtags, zum Beispiel `complete`, `partial`, `missing_source` oder `not_generated` |
+| `source_run_id` | Referenz auf den zugrunde liegenden Run oder die relevante Quellenkennung |
+| `source_artifacts` | Liste der verwendeten oder erwarteten Quellartefakte |
+| `positions_file` | Pfad oder Dateiname der zugehoerigen Stichtagsdatei, sofern vorhanden |
+| `created_at` | Zeitpunkt der Erzeugung oder Index-Aktualisierung |
+| `notes` | Freitext fuer Luecken, Annahmen, Pruefhinweise oder Review-Bedarf |
+
+Das Manifest ist keine Performance-Auswertung.
+
+Das Manifest ist keine Investitions- oder Handelsfreigabe.
+
+Das Manifest loest keine automatische Verarbeitung aus.
+
+Das Manifest dient Uebersicht, Nachvollziehbarkeit und Human Review.
+
+### Statusmodell
+
+Ein vorsichtiges Statusmodell sollte Datenluecken sichtbar machen, ohne Vollstaendigkeit oder fachliche Qualitaet vorzutaeuschen.
+
+| Status | Bedeutung |
+| --- | --- |
+| `not_generated` | Stichtag ist fachlich vorgesehen, aber noch nicht erzeugt |
+| `missing_source` | Stichtag kann nicht erzeugt werden, weil notwendige Quellartefakte fehlen |
+| `partial` | Stichtag wurde nur teilweise abgeleitet oder enthaelt erkennbare Luecken |
+| `complete` | Stichtag wurde aus nachvollziehbaren Quellen vollstaendig abgeleitet |
+
+`complete` bedeutet nur formal vollstaendig innerhalb dieses Datenmodells.
+
+`complete` bedeutet nicht fachlich gut, performant, investierbar oder korrekt im Sinne einer Anlageentscheidung.
+
+### Abgrenzung zu bestehenden Projektbereichen
+
+Die historische Positionsdatenbasis muss klar von bestehenden Projektbereichen getrennt bleiben.
+
+| Bereich | Abgrenzung |
+| --- | --- |
+| `reports/` | dort liegen Auswertungen und Run-Ergebnisse |
+| `portfolios/` | dort liegen manuell gepflegte Portfolio-Referenzen |
+| Paper-Runner-Artefakte | diese beschreiben aktuelle bzw. konkrete Runner-/Paper-Kontexte |
+| historische Positionsdatenbasis | diese waere eine separate Analyse-/Replay-Datenbasis |
+
+Die historische Positionsdatenbasis darf nicht als Ersatz fuer `reports/`, `portfolios/` oder Paper-Runner-Artefakte verstanden werden.
+
+### Sicherheitsrahmen
+
+Fuer 09.30 wird der Sicherheitsrahmen erneut bestaetigt:
+
+* keine Verzeichnisse oder Dateien fuer historische Positionsdaten anlegen
+* keine echte historische Datenbasis erzeugen
+* keine Beispielartefakte erzeugen, die wie echte historische Daten wirken
+* keine Runs starten
+* keine Batch-Verarbeitung
+* keine Aenderung an Paper-Runner-Logik
+* keine Broker-Logik
+* keine Live-Logik
+* keine Order-Logik
+* keine Stueckzahl-Logik
+* keine Euro-Logik
+* keine Depotgroessenlogik
+* keine Benchmark-Aussage
+* keine Performance-Aussage
+* keine Drawdown-Aussage
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+Damit bleibt 09.30 ein vorsichtiger Dokumentationsschritt zur Strukturierung einer moeglichen spaeteren Datenbasis, ohne operative Umsetzung.
+
+### Ergebnis von 09.30
+
+Eine moegliche Zielstruktur ist dokumentiert.
+
+Eine moegliche Namenskonvention ist dokumentiert.
+
+Ein Manifest-/Index-Konzept inklusive vorsichtigem Statusmodell ist dokumentiert.
+
+Es wurden noch keine Verzeichnisse, Dateien oder historischen Positionsdaten erzeugt.
+
+Der naechste sinnvolle Schritt waere 09.40 zur kontrollierten Klaerung, welche vorhandenen Artefakte ueberhaupt als Quellen geeignet sind.
