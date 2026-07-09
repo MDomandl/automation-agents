@@ -10093,3 +10093,144 @@ Vor einer echten historischen Datenbasis bestehen weiterhin wesentliche Luecken:
 Es wurden keine historischen Positionsdaten erzeugt.
 
 Der naechste sinnvolle Schritt waere 09.50 zur Entscheidung ueber eine minimale, kontrollierte Quellenstrategie fuer spaetere echte Stichtagsdaten.
+
+## 09.50 Minimale Quellenstrategie fuer echte Stichtagsdaten
+
+### Ziel von 09.50
+
+09.50 legt eine minimale und kontrollierte Quellenstrategie fuer spaetere echte historische `balanced_v1`-Stichtagsdaten fest.
+
+Die Quellenstrategie definiert, welche vorhandenen oder spaeter explizit erzeugten Artefakte grundsaetzlich als Quelle fuer echte historische `balanced_v1`-Stichtagsdaten zulaessig sein koennen.
+
+Sie verhindert, dass ungeeignete Artefakte versehentlich als historische Positionsdatenbasis verwendet werden.
+
+Sie ist noch keine technische Umsetzung und erzeugt keine Daten.
+
+### Primaerquellen
+
+Als Primaerquelle duerfen spaeter nur Artefakte gelten, die mindestens folgende Kriterien erfuellen:
+
+* eindeutiger historischer Stichtag oder eindeutig ableitbares `as_of`
+* eindeutiges `strategy_profile`, insbesondere `balanced_v1`
+* reproduzierbare Symbole
+* reproduzierbare Zielgewichte
+* nachvollziehbare Run-/Manifest-/Artefaktreferenz
+* lokale Verfuegbarkeit
+* klare Abgrenzung zu Paper-Runner-Zustand und manuell gepflegten Portfolios
+
+Eine Primaerquelle muss positionsnah genug sein, um historische Stichtagspositionen ohne fachliches Raten abzuleiten.
+
+Falls vorhandene Artefakte diese Kriterien nicht vollstaendig erfuellen, sind sie nicht automatisch Primaerquelle.
+
+Spaetere echte Stichtagsdaten duerfen nur aus explizit geeigneten Quellen abgeleitet werden.
+
+Die Quellenpruefung aus 09.40 zeigt, dass lokal vorhandene Artefakte zwar wichtige Hinweise enthalten koennen, aber nicht automatisch eine echte historische `balanced_v1`-Positionsdatenbasis darstellen.
+
+### Sekundaer- und Kontextquellen
+
+Sekundaer- und Kontextquellen duerfen spaeter nur unterstuetzend genutzt werden.
+
+Dazu zaehlen insbesondere:
+
+* Dokumentation zur Interpretation von Profilen, Scope-Grenzen und Sicherheitsregeln
+* Manifeste zur Reproduzierbarkeit, Quellenreferenz und Nachvollziehbarkeit
+* Reports zur Einordnung vorhandener Runs, Profile, Zeitraeume und Artefaktpfade
+* Vergleichsreports zur Plausibilisierung von Symbol- oder Gewichtsveraenderungen
+
+Sekundaerquellen duerfen fehlende Positionsdaten nicht ersetzen.
+
+Sekundaerquellen duerfen keine fehlenden Gewichtungen, Symbole oder Stichtage erraten.
+
+Sekundaerquellen dienen nur Kontext, Plausibilitaet und Human Review.
+
+### Ausgeschlossene Quellen
+
+Folgende Bereiche duerfen nicht als Quelle fuer echte historische `balanced_v1`-Positionsdaten dienen:
+
+* manuell gepflegte Portfolio-CSV-Dateien unter `portfolios/`
+* aktuelle Paper-Runner-Zustaende
+* synthetische Beispiel- oder Replay-Daten aus Phase 8
+* Reports, die nur aggregierte Kennzahlen enthalten
+* unvollstaendige oder uneindeutige Artefakte ohne klaren Stichtag
+* Artefakte ohne eindeutig erkennbares Strategieprofil
+* Artefakte, deren Gewichtsinformationen nicht reproduzierbar nachvollziehbar sind
+
+Diese ausgeschlossenen Quellen koennen je nach Inhalt Kontext liefern, duerfen aber keine echte historische Positionsdatenbasis begruenden.
+
+### Umgang mit fehlenden oder uneindeutigen Quellen
+
+Fehlende Quellen werden als `missing_source` dokumentiert.
+
+Uneindeutige Quellen werden nicht automatisch verwendet.
+
+Teilweise nutzbare Quellen werden hoechstens als `partial` markiert.
+
+Fehlende Stichtage duerfen nicht stillschweigend ergaenzt werden.
+
+Fehlende Gewichtungen, Symbole oder Raenge duerfen nicht geraten werden.
+
+Jede spaetere Ableitung braucht Human Review.
+
+### Kontrollierte Stichtagserzeugung als spaetere Option
+
+Falls geeignete historische Artefakte fehlen, koennten einzelne historische Stichtage spaeter explizit und kontrolliert erzeugt werden.
+
+Eine solche Erzeugung waere ein separater Scope.
+
+Sie duerfte nur fuer konkret benannte Stichtage erfolgen.
+
+Sie duerfte keine unkontrollierte Batch-Verarbeitung sein.
+
+Sie duerfte keine echten Paper-Runs ohne explizite Freigabe sein.
+
+Sie duerfte keine bestehende Paper-Runner-Logik aendern.
+
+Sie muesste klar als historische Analyse-/Replay-Datenbasis abgegrenzt bleiben.
+
+### Minimalentscheidung fuer Phase 9
+
+Phase 9 soll zunaechst keine breite historische Datenproduktion starten.
+
+Geeignete Quellen muessen pro Stichtag explizit nachweisbar sein.
+
+Primaerquellen haben Vorrang vor Kontextquellen.
+
+Synthetische Replay-Daten und manuelle Portfolios bleiben ausgeschlossen.
+
+Der sichere Weg ist eine spaetere, einzeln freigegebene Stichtagsableitung mit Manifest-/Index-Dokumentation.
+
+### Sicherheitsrahmen
+
+Fuer 09.50 wird der Sicherheitsrahmen erneut bestaetigt:
+
+* keine historische Datenbasis erzeugen
+* keine Beispielartefakte erzeugen
+* keine Verzeichnisse fuer historische Positionsdaten anlegen
+* keine neuen Skripte anlegen
+* keine Tests aendern
+* keine Runs starten
+* keine Batch-Verarbeitung
+* keine Aenderung an Paper-Runner-Logik
+* keine Broker-Logik
+* keine Live-Logik
+* keine Order-Logik
+* keine Stueckzahl-Logik
+* keine Euro-Logik
+* keine Depotgroessenlogik
+* keine Benchmark-Aussage
+* keine Performance-Aussage
+* keine Drawdown-Aussage
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+### Ergebnis von 09.50
+
+Eine minimale Quellenstrategie ist dokumentiert.
+
+Primaer-, Sekundaer-/Kontext- und ausgeschlossene Quellen sind abgegrenzt.
+
+Der Umgang mit fehlenden oder uneindeutigen Quellen ist festgelegt.
+
+Es wurden keine historischen Positionsdaten erzeugt.
+
+Der naechste sinnvolle Schritt waere 09.60 zur Festlegung eines kontrollierten Vorgehens fuer eine erste rein dokumentierte Stichtagsauswahl, noch ohne Datenerzeugung.
