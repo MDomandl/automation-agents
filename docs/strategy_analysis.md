@@ -9949,3 +9949,147 @@ Ein Manifest-/Index-Konzept inklusive vorsichtigem Statusmodell ist dokumentiert
 Es wurden noch keine Verzeichnisse, Dateien oder historischen Positionsdaten erzeugt.
 
 Der naechste sinnvolle Schritt waere 09.40 zur kontrollierten Klaerung, welche vorhandenen Artefakte ueberhaupt als Quellen geeignet sind.
+
+## 09.40 Quellenpruefung: Geeignete vorhandene Artefakte
+
+### Ziel von 09.40
+
+09.40 prueft ausschliesslich lesend, welche bereits vorhandenen lokalen Artefakte grundsaetzlich als Quellen fuer eine spaetere echte historische `balanced_v1`-Positionsdatenbasis geeignet sein koennten.
+
+Es geht nur um eine Eignungspruefung vorhandener Artefakte.
+
+Es geht noch nicht um die Erzeugung historischer Positionsdaten.
+
+Es geht noch nicht um Generatoren, Batch-Laeufe oder Datenmigration.
+
+Die Pruefung soll klaeren, welche Artefakte spaeter folgende Informationen liefern koennten:
+
+* `as_of` oder einen ableitbaren historischen Stichtag
+* `strategy_profile`, insbesondere `balanced_v1`
+* `symbol`
+* `target_weight`
+* optionale Ranginformationen wie `rank` oder `selection_rank`
+* Quellenreferenzen wie Run-, Report-, Manifest- oder Positionsdatei-Bezuege
+
+### Gelesene bzw. gepruefte Artefaktbereiche
+
+Fuer 09.40 wurden vorhandene lokale Artefakte nur lesend inspiziert.
+
+Tatsaechlich gepruefte Bereiche:
+
+| Bereich | Beobachtung |
+| --- | --- |
+| `reports/historical_paper_replay/` | enthaelt einen historischen Paper-Replay-Report, JSON-Ergebnis und Manifest fuer synthetische Beispielpositionen |
+| `reports/paper_run_history/` | enthaelt eine History-Auswertung vorhandener Paper-Reports mit Run-Metadaten, `as_of`, `strategy_profile` und Zaehlern |
+| `reports/paper_run_comparison/` | enthaelt einen Vergleich zweier Paper-Reports mit Metadaten und Symbol-/Gewichtsvergleichen |
+| `reports/strategy_analysis/` | enthaelt Analyse-Reports und JSON-Summaries zu Profilen, Marktphasen, Walk-forward, Risk Metrics und weiteren Auswertungen |
+| `data/examples/` | enthaelt `historical_paper_replay_positions.json` als synthetische Beispiel-Positionsdaten fuer Replay-Tests |
+| `portfolios/` | enthaelt manuell gepflegte lokale Portfolio-CSV-Dateien und Dokumentation fuer Paper-Runs |
+| `configs/profiles/` | enthaelt Profilkonfigurationen, darunter `balanced_v1.toml` |
+| `docs/` | enthaelt fachliche Dokumentation zu Strategieanalyse, Paper-Runner-Workflow und Portfolio-Grenzen |
+
+Ein lokaler `automation_runs/`-Ordner wurde in diesem Workspace nicht gefunden. Mehrere Reports referenzieren zwar fruehere Run-Bundles ausserhalb dieses Workspace-Pfads, diese Bundles wurden in 09.40 aber nicht als lokal vorhandene direkte Quellen geprueft.
+
+Das Unterverzeichnis `aktien_oop/` ist in diesem Checkout vorhanden, enthaelt aber keine lokal pruefbaren Artefakte.
+
+### Eignungskriterien
+
+Vorhandene Artefaktarten wurden anhand folgender Kriterien bewertet:
+
+| Kriterium | Bedeutung fuer spaetere Positionsdaten |
+| --- | --- |
+| explizites `as_of` oder ableitbarer historischer Stichtag | notwendig, damit jede Position einem historischen Bewertungszeitpunkt zugeordnet werden kann |
+| eindeutiges `strategy_profile`, insbesondere `balanced_v1` | notwendig, damit Profilverwechslungen vermieden werden |
+| Symbole | notwendig fuer Positionszeilen |
+| Zielgewichte oder reproduzierbare Weight-Information | notwendig fuer `target_weight`; manuelle Ist-Gewichte reichen allein nicht aus |
+| Rang-/Selection-Information | optional, aber nur nutzbar, wenn sie maschinenlesbar und nachvollziehbar vorhanden ist |
+| Quellen-/Run-/Manifest-Referenzen | wichtig fuer Reproduzierbarkeit und Human Review |
+| lokale Verfuegbarkeit | notwendig, damit die Quelle ohne externe Annahmen nachvollziehbar bleibt |
+| klare Abgrenzung zu Paper-Runner-Zustand und manuellen Portfolios | notwendig, damit historische Daten nicht mit aktuellem Paper-Zustand oder Ist-Portfolios verwechselt werden |
+
+### Quellenkandidaten
+
+| Artefaktart / Bereich | Vorhandene relevante Felder | Moegliche Nutzung fuer spaetere historische Positionsdaten | Einschraenkungen / Risiken | Vorlaeufige Eignung |
+| --- | --- | --- | --- | --- |
+| `reports/historical_paper_replay/historical_paper_replay.json` | `strategy_profile`, `profile`, `replay_start`, `replay_end`, `as_of_dates`, je Snapshot `as_of`, `strategy_profile`, `positions`, `symbol`, `target_weight`, `target_weights`, `warnings` | technisch nah am Zielmodell; kann zeigen, wie Stichtage, Symbole und Zielgewichte strukturiert werden koennten | basiert auf synthetischen Beispielpositionen, nicht auf echter historischer `balanced_v1`-Erzeugung; enthaelt keine verlaesslichen Ranginformationen | eingeschraenkt geeignet |
+| `reports/historical_paper_replay/historical_paper_replay_manifest.json` | `strategy_profile`, `profile`, `replay_start`, `replay_end`, `as_of_dates`, `positions_file`, Sicherheitsfelder | kann fuer Reproduzierbarkeits- und Quellenreferenzen als Muster dienen | Manifest verweist auf synthetische Beispieldatei; ersetzt keine Positionsdaten | eingeschraenkt geeignet |
+| `data/examples/historical_paper_replay_positions.json` | `positions_by_as_of`, Stichtage als Keys, Symbole, Gewichte | geeignet als technisches Formatbeispiel fuer Stichtags-Gewichte | explizit synthetische Beispieldaten; kein `strategy_profile` je Position; keine Quelle fuer echte historische `balanced_v1`-Daten; keine Ranginformationen | ungeeignet als echte Quelle, eingeschraenkt geeignet als Formatbeispiel |
+| `reports/paper_run_history/paper_run_history.json` | `run_id`, `run_label`, `report_path`, `run_dir`, `profile`, `strategy_profile`, `runner_mode`, `as_of`, Portfolio-Referenzen, Proposal-/Positionszaehler, Safety-/Review-Felder | kann spaeter helfen, passende Paper-Run-Reports zu identifizieren und Quellenreferenzen zu pruefen | enthaelt nur Metadaten und Zaehler, keine Positionszeilen und keine `target_weight`-Details; referenzierte Run-Bundles liegen nicht lokal in diesem Workspace | eingeschraenkt geeignet |
+| `reports/paper_run_comparison/paper_run_comparison.json` | Metadatenvergleich mit `strategy_profile`, `profile`, `as_of`, Portfolio-Referenzen; `symbol_comparisons` mit `symbol`, `previous_target_weight`, `current_target_weight`, Deltas und Proposal-Klassifikation | kann fuer Vergleichs- und Plausibilitaetsfragen nutzbar sein, insbesondere Gewichtsveraenderungen zwischen zwei Paper-Reports | Vergleichsartefakt, keine primaere Positionsdatenbasis; nur zwei konkrete Paper-Reports; `as_of` ist hier gleich und nicht historisch breit; keine Selection-Ranks | eingeschraenkt geeignet |
+| `reports/strategy_analysis/*` JSON-/Markdown-Summaries | `strategy_profile`, Run- und Manifestpfade, teils `runner_compare_points`, Perioden, Metriken, Commands und Auswertungsfenster | kann Quellenhinweise, Run-IDs, Manifestpfade und historische Vergleichspunkte liefern | Auswertungen und Performance-/Robustheitsreports sind keine Positionsdaten; oft fehlen Positionszeilen, Zielgewichte und maschinenlesbare Ranks | eingeschraenkt geeignet fuer Kontext, ungeeignet als direkte Positionsquelle |
+| `portfolios/example_local_portfolio.csv` und `portfolios/README.md` | CSV-Spalten `symbol`, `weight`; Dokumentation zu manuellen lokalen Ist-Portfolios | kann nur als manuelle lokale Referenz fuer Paper-Run-Vergleiche dienen | keine `as_of`-Historie, kein `strategy_profile`, keine Zielgewichte von `balanced_v1`, keine automatisch erzeugte historische Quelle | ungeeignet |
+| `configs/profiles/balanced_v1.toml` | `profile_name`, `profile_label`, Strategieparameter wie `top_k`, Sektorlimit, Turnover-Cap, Regime-Parameter und Benchmark | kann spaeter das verwendete Profil eindeutig identifizieren und Parameterkontext liefern | enthaelt keine Stichtage, keine Symbole, keine Zielgewichte und keine Positionsdaten | eingeschraenkt geeignet fuer Profilkontext, ungeeignet als Positionsquelle |
+| `docs/strategy_analysis.md`, `docs/paper_runner_workflow.md` | fachliche Zielbilder, Sicherheitsgrenzen, Datenmodell, Paper-Runner-Abgrenzung | wichtig fuer Scope, Review-Regeln und Abgrenzung | Dokumentation ist keine maschinenlesbare Positionsquelle | eingeschraenkt geeignet fuer Governance, ungeeignet als Datenquelle |
+
+### Abgrenzung einzelner Bereiche
+
+Paper-Runner-Reports und daraus abgeleitete History- oder Comparison-Reports koennen hilfreiche Felder enthalten, etwa `as_of`, `strategy_profile`, Run-Referenzen, Symbolvergleiche und Zielgewichte in Vergleichszeilen. Sie duerfen aber nicht mit einer historischen Datenbasis verwechselt werden.
+
+Portfolio-CSV-Dateien unter `portfolios/` sind manuelle Referenzen oder lokale Ist-Portfolio-Dateien. Sie sind keine automatisch erzeugte historische `balanced_v1`-Quelle.
+
+Reports koennen Auswertungen, Metadaten, Vergleiche und Reproduzierbarkeitsinformationen enthalten. Sie sind aber nicht automatisch Positionsdaten.
+
+Manifeste koennen fuer Reproduzierbarkeit wichtig sein, weil sie Quellen, Parameter, Stichtage und Sicherheitsstatus dokumentieren koennen. Sie ersetzen aber nicht zwingend Positionsdaten.
+
+Das synthetische Replay-Beispiel ist fachlich besonders klar abzugrenzen: Es enthaelt zwar eine positionsnahe Struktur mit Stichtagen und Gewichten, ist aber keine echte historische `balanced_v1`-Positionsdatenbasis.
+
+### Luecken und offene Punkte
+
+Historische Stichtage sind nur teilweise und je Artefakt unterschiedlich vorhanden.
+
+`as_of` ist nicht ueberall eindeutig als historischer Positionsstichtag interpretierbar. In Paper-Run-History und Paper-Run-Comparison beschreibt `as_of` den jeweiligen Paper-/Runner-Kontext, nicht automatisch eine saubere historische Positionsdatenbasis.
+
+`strategy_profile` ist in vielen Reports vorhanden, aber nicht in allen potentiellen Datenquellen maschinenlesbar pro Positionszeile. Insbesondere das synthetische Beispiel unter `data/examples/` enthaelt Stichtags-Gewichte, aber kein `strategy_profile` pro Stichtag oder Position.
+
+Gewichtsinformationen sind nur in bestimmten Artefakten positionsnah vorhanden. Das synthetische Replay-Beispiel und der Historical-Paper-Replay-Report enthalten Gewichte; Paper-Run-History enthaelt dagegen nur Zaehler; Portfolio-CSV enthaelt manuelle Ist-Gewichte und keine `balanced_v1`-Zielgewichte.
+
+`rank` oder `selection_rank` ist in den geprueften positionsnahen Artefakten nicht verlaesslich als sauberes Feld verfuegbar.
+
+Vorhandene Artefakte sind ueberwiegend Run-Ergebnisse, Reports, Vergleiche, Manifeste, Beispielartefakte oder manuelle Portfolio-Referenzen. Sie sind noch keine saubere historische Positionsdatenbasis.
+
+Die lokal vorhandenen Reports referenzieren teils externe oder fruehere Run-Pfade ausserhalb dieses Workspace-Pfads. Vor einer echten historischen Datenbasis muesste geklaert werden, welche primaeren Run-Bundles tatsaechlich lokal, vollstaendig und reproduzierbar verfuegbar sind.
+
+### Sicherheitsrahmen
+
+Fuer 09.40 wird der Sicherheitsrahmen erneut bestaetigt:
+
+* nur lesende Pruefung vorhandener Dateien
+* keine historische Datenbasis erzeugen
+* keine Beispielartefakte erzeugen
+* keine Verzeichnisse fuer historische Positionsdaten anlegen
+* keine neuen Skripte anlegen
+* keine Tests aendern
+* keine Runs starten
+* keine Batch-Verarbeitung
+* keine Aenderung an Paper-Runner-Logik
+* keine Broker-Logik
+* keine Live-Logik
+* keine Order-Logik
+* keine Stueckzahl-Logik
+* keine Euro-Logik
+* keine Depotgroessenlogik
+* keine Benchmark-Aussage
+* keine Performance-Aussage
+* keine Drawdown-Aussage
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+### Ergebnis von 09.40
+
+Grundsaetzlich geeignet erscheinen nur Artefakte, die bereits positionsnahe Informationen mit Stichtag, Strategieprofil, Symbolen und Zielgewichten enthalten. Lokal trifft das am ehesten auf `reports/historical_paper_replay/historical_paper_replay.json` zu, allerdings nur eingeschraenkt, weil es auf synthetischen Beispielpositionen basiert.
+
+Eingeschraenkt geeignet erscheinen Manifeste, Paper-Run-History, Paper-Run-Comparison und Strategy-Analysis-Reports. Sie koennen spaeter Quellenreferenzen, Profilinformationen, Stichtage, Run-IDs oder Plausibilitaetskontext liefern, sind aber keine primaeren historischen Positionsdaten.
+
+Ungeeignet als echte historische `balanced_v1`-Quelle erscheinen die manuell gepflegten Portfolio-CSV-Dateien unter `portfolios/` sowie reine Dokumentationsdateien. Sie koennen Kontext und Abgrenzung liefern, aber keine automatisch erzeugten historischen `balanced_v1`-Zielpositionen.
+
+Vor einer echten historischen Datenbasis bestehen weiterhin wesentliche Luecken:
+
+* keine lokal vorhandene echte historische `balanced_v1`-Positionsdatenbasis
+* keine verlaesslich vollstaendige lokale Sammlung primaerer Run-Bundles im Workspace
+* keine durchgaengig maschinenlesbaren Rang- oder Selection-Informationen
+* keine einheitliche `as_of`-Semantik ueber alle Artefaktarten hinweg
+* keine klare Entscheidung, welche Artefakte spaeter primaere Quelle und welche nur Manifest-/Audit-Kontext sein sollen
+
+Es wurden keine historischen Positionsdaten erzeugt.
+
+Der naechste sinnvolle Schritt waere 09.50 zur Entscheidung ueber eine minimale, kontrollierte Quellenstrategie fuer spaetere echte Stichtagsdaten.
