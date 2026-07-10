@@ -10234,3 +10234,137 @@ Der Umgang mit fehlenden oder uneindeutigen Quellen ist festgelegt.
 Es wurden keine historischen Positionsdaten erzeugt.
 
 Der naechste sinnvolle Schritt waere 09.60 zur Festlegung eines kontrollierten Vorgehens fuer eine erste rein dokumentierte Stichtagsauswahl, noch ohne Datenerzeugung.
+
+## 09.60 Kontrollierte Stichtagsauswahl ohne Datenerzeugung
+
+### Ziel der kontrollierten Stichtagsauswahl
+
+09.60 dokumentiert ausschliesslich Kriterien und Regeln, nach denen spaetere historische `balanced_v1`-Stichtage kontrolliert ausgewaehlt werden duerfen.
+
+Es geht nur um Kriterien fuer spaetere Stichtage.
+
+Es geht noch nicht um die Erzeugung historischer Positionsdaten.
+
+Es geht nicht um Batch-Verarbeitung.
+
+Es geht nicht um Performance-, Benchmark-, Drawdown- oder Renditeauswertung.
+
+Jeder spaetere Stichtag braucht eine explizite fachliche Begruendung und Human Review.
+
+### Warum keine automatische Monats- oder Batch-Auswahl
+
+Eine automatische Auswahl aller Monatsenden waere zu frueh.
+
+Eine breite Batch-Erzeugung koennte Datenluecken, falsche Quellen oder Profilverwechslungen verdecken.
+
+Stichtage duerfen nicht nur gewaehlt werden, weil sie technisch bequem erzeugbar waeren.
+
+Die erste echte Datenbasis soll klein, ueberpruefbar und auditierbar bleiben.
+
+Fehlende oder uneindeutige Quellen duerfen nicht durch Automatisierung kaschiert werden.
+
+### Kriterien fuer spaetere Kandidaten-Stichtage
+
+Ein spaeterer Kandidaten-Stichtag darf nur in Betracht kommen, wenn die folgenden Kriterien fachlich pruefbar sind:
+
+* Der Stichtag ist fachlich relevant fuer `balanced_v1`.
+* Eine passende Primaerquelle ist vorhanden oder spaeter separat freigegeben erzeugbar.
+* `as_of` ist eindeutig.
+* `strategy_profile` ist eindeutig `balanced_v1`.
+* Symbole und Zielgewichte sind reproduzierbar ableitbar.
+* Die Quelle ist lokal nachvollziehbar.
+* Der Stichtag ist klar vom aktuellen Paper-Runner-Zustand getrennt.
+* Der Stichtag ist fuer Human Review ueberschaubar.
+* Der Stichtag dient Replay-/Analysevorbereitung, nicht einer Investitionsentscheidung.
+
+Diese Kriterien begruenden noch keine Datenerzeugung. Sie beschreiben nur, wann ein Stichtag spaeter als Kandidat fuer eine explizit freigegebene Ableitung geeignet sein koennte.
+
+### Ausschlusskriterien
+
+Ein Stichtag soll nicht verwendet werden, wenn eines der folgenden Ausschlusskriterien zutrifft:
+
+* Es ist keine geeignete Primaerquelle vorhanden.
+* `as_of` ist uneindeutig.
+* Das Strategieprofil ist nicht eindeutig oder nicht `balanced_v1`.
+* Gewichtsinformationen fehlen oder sind nicht reproduzierbar.
+* Die Quelle ist nur synthetisch oder stammt aus Beispiel-/Replay-Daten.
+* Die Quelle stammt aus einer manuellen Portfolio-CSV.
+* Die Quelle beschreibt aktuellen Paper-Runner-Zustand statt einer historischen Analysebasis.
+* Der Stichtag wuerde nur ueber Raten, Ergaenzen oder implizite Annahmen entstehen.
+* Human Review kann nicht sinnvoll durchgefuehrt werden.
+
+Ein ausgeschlossenes Artefakt kann je nach Inhalt weiterhin Kontext liefern. Es darf aber keine echte historische `balanced_v1`-Positionsdatenbasis begruenden.
+
+### Kleine erste Kandidatenmenge als spaeterer Scope
+
+Eine spaetere erste echte Ableitung sollte nur mit sehr wenigen explizit benannten Stichtagen starten.
+
+Sinnvoll waeren zunaechst maximal 2 bis 3 Stichtage.
+
+Diese Stichtage sollten unterschiedliche Situationen abdecken, duerfen aber nicht als Performance-Stichprobe missverstanden werden.
+
+Die Auswahl dient nur der technischen und fachlichen Plausibilisierung des Datenmodells.
+
+Die konkrete Auswahl wird in 09.60 noch nicht endgueltig getroffen.
+
+Falls spaeter konkrete Kandidaten aus vorhandenen Artefakten genannt werden, muessen sie ausdruecklich als vorlaeufige Kandidaten markiert werden.
+
+### Status fuer nicht ausgewaehlte oder fehlende Stichtage
+
+Nicht ausgewaehlte Stichtage gelten nicht automatisch als fehlend.
+
+Fachlich vorgesehene, aber noch nicht erzeugte Stichtage koennten spaeter den Status `not_generated` erhalten.
+
+Stichtage ohne geeignete Quelle koennten spaeter den Status `missing_source` erhalten.
+
+Teilweise ableitbare Stichtage koennten spaeter den Status `partial` erhalten.
+
+Diese Status duerfen erst in einem echten Manifest-/Index-Artefakt verwendet werden, wenn ein separater Scope dafuer freigegeben wurde.
+
+### Human-Review-Regel
+
+Vor jeder spaeteren echten Stichtagsableitung muss geprueft werden:
+
+* Welche Quelle wird verwendet?
+* Ist der Stichtag eindeutig?
+* Ist `balanced_v1` eindeutig?
+* Sind Symbole und Zielgewichte reproduzierbar?
+* Ist klar, dass keine Paper-/Portfolio-/Live-Logik beruehrt wird?
+
+Ohne Human Review keine Ableitung.
+
+Human Review ersetzt keine Investitionspruefung und ist keine Handelsfreigabe.
+
+### Sicherheitsrahmen
+
+Fuer 09.60 wird der Sicherheitsrahmen erneut bestaetigt:
+
+* keine historische Datenbasis erzeugen
+* keine Stichtagsdateien erzeugen
+* keine Manifest-/Index-Dateien erzeugen
+* keine Beispielartefakte erzeugen
+* keine Verzeichnisse fuer historische Positionsdaten anlegen
+* keine neuen Skripte anlegen
+* keine Tests aendern
+* keine Runs starten
+* keine Batch-Verarbeitung
+* keine Aenderung an Paper-Runner-Logik
+* keine Broker-/Live-/Order-Logik
+* keine Stueckzahl-/Euro-/Depotgroessenlogik
+* keine Benchmark-/Performance-/Drawdown-Aussage
+* keine Investitionsfreigabe
+* Human Review bleibt zwingend
+
+### Ergebnis von 09.60
+
+Kriterien fuer spaetere Stichtagsauswahl sind dokumentiert.
+
+Ausschlusskriterien sind dokumentiert.
+
+Eine kleine, spaetere Kandidatenmenge wird als sicherer Ansatz beschrieben.
+
+Es wurden keine Stichtage erzeugt oder festgeschrieben.
+
+Es wurden keine historischen Positionsdaten erzeugt.
+
+Der naechste sinnvolle Schritt waere 09.70 zur Entscheidung, ob Phase 9 zunaechst dokumentarisch abgeschlossen oder ob ein erster explizit freigegebener Mini-Prototyp vorbereitet werden soll.
