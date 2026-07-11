@@ -10368,3 +10368,107 @@ Es wurden keine Stichtage erzeugt oder festgeschrieben.
 Es wurden keine historischen Positionsdaten erzeugt.
 
 Der naechste sinnvolle Schritt waere 09.70 zur Entscheidung, ob Phase 9 zunaechst dokumentarisch abgeschlossen oder ob ein erster explizit freigegebener Mini-Prototyp vorbereitet werden soll.
+
+## 09.70 Phase-9-Zwischenabschluss
+
+### Ziel des Zwischenabschlusses
+
+09.70 fasst Phase 9 als kontrollierte Planungs- und Abgrenzungsphase zusammen.
+
+Es wurde vorbereitet, wie eine echte historische `balanced_v1`-Positionsdatenbasis spaeter entstehen koennte.
+
+Es wurde bewusst noch keine echte historische Positionsdatenbasis erzeugt.
+
+Dieser Zwischenabschluss ist keine Investitionsfreigabe, keine Handelsfreigabe, keine Performancefreigabe und keine Umsetzungsfreigabe.
+
+### Zusammenfassung der erledigten Schritte
+
+09.10 hat Zielbild, Datenherkunft und Sicherheitsrahmen fuer Phase 9 festgelegt.
+
+09.20 hat ein minimales fachliches Datenformat und ein vorsichtiges Stichtagsmodell beschrieben.
+
+09.30 hat eine moegliche Verzeichnis-/Namenskonvention sowie ein Manifest-/Index-Konzept dokumentiert.
+
+09.40 hat vorhandene Artefaktbereiche ausschliesslich lesend geprueft und moegliche Quellenkandidaten eingeordnet.
+
+09.50 hat eine minimale Quellenstrategie mit Primaerquellen, Sekundaer-/Kontextquellen und ausgeschlossenen Quellen dokumentiert.
+
+09.60 hat Kriterien und Ausschlusskriterien fuer eine spaetere kontrollierte Stichtagsauswahl dokumentiert.
+
+### Erreichter Stand
+
+Das Zielbild fuer eine spaetere historische `balanced_v1`-Positionsdatenbasis ist geklaert.
+
+Das minimale Datenmodell ist beschrieben.
+
+Ein vorsichtiges Stichtagsmodell ist beschrieben.
+
+Eine moegliche Struktur mit Stichtagsdateien plus Manifest/Index ist beschrieben.
+
+Quellenkategorien und Ausschlussregeln sind dokumentiert.
+
+Eine automatische breite Batch-Erzeugung wurde ausdruecklich ausgeschlossen.
+
+Eine spaetere erste echte Ableitung muesste klein, explizit freigegeben und human-reviewed sein.
+
+### Was weiterhin nicht existiert
+
+Weiterhin existiert keine echte historische `balanced_v1`-Positionsdatenbasis.
+
+Weiterhin existieren keine Stichtagsdateien.
+
+Weiterhin existiert kein Manifest-/Index-Artefakt.
+
+Weiterhin existiert kein Generator.
+
+Weiterhin existiert kein Validator.
+
+Weiterhin existieren keine neuen Reports.
+
+Weiterhin existieren keine neuen Skripte.
+
+Weiterhin existieren keine neuen Tests.
+
+Weiterhin existiert keine Batch-Verarbeitung.
+
+Weiterhin existiert keine Aenderung am Paper-Runner.
+
+Weiterhin existiert keine Broker-/Live-/Order-/Stueckzahl-/Euro-/Depotgroessenlogik.
+
+Weiterhin existiert keine Benchmark-/Performance-/Drawdown-Auswertung.
+
+Weiterhin existiert keine Investitionsfreigabe.
+
+### Sicherheitsbewertung
+
+Phase 9 blieb vollstaendig im Kontroll- und Dokumentationsmodus.
+
+Die Trennung zwischen historischer Analyse-/Replay-Datenbasis, Paper-Runner-Zustand und manuell gepflegten Portfolios wurde geschaerft.
+
+Die wichtigste Schutzregel bleibt: keine Ableitung historischer Stichtagsdaten ohne expliziten Scope und Human Review.
+
+`complete` in einem spaeteren Manifest wuerde nur formale Vollstaendigkeit bedeuten, nicht fachliche Guete oder Investierbarkeit.
+
+### Moegliche naechste Richtungen
+
+Eine moegliche Richtung waere Phase 10 als kontrollierte Mini-Umsetzung. Denkbar waeren die Anlage einer Struktur/README ohne echte Daten, ein Schema-/Validator-Konzept oder ein erster explizit freigegebener Mini-Prototyp mit wenigen Stichtagen.
+
+Eine weitere moegliche Richtung waere die Rueckkehr zum Paper-Betrieb und weitere Beobachtung ohne historische Datenbasis.
+
+Eine weitere moegliche Richtung waere zusaetzliche Dokumentationsverdichtung, falls `docs/strategy_analysis.md` zu gross oder unuebersichtlich wird.
+
+Jede technische Umsetzung braucht separaten Scope.
+
+Jede echte Stichtagsableitung braucht explizite Freigabe.
+
+Keine dieser Richtungen wird durch 09.70 automatisch begonnen.
+
+### Ergebnis von 09.70
+
+Phase 9 ist als Planungs- und Abgrenzungsphase dokumentarisch sauber zwischenabgeschlossen.
+
+Es wurden keine historischen Positionsdaten erzeugt.
+
+Es wurde keine technische Umsetzung gestartet.
+
+Vor jeder echten Umsetzung ist eine separate Entscheidung noetig.
