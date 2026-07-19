@@ -4,7 +4,7 @@ Kurzer Einstiegspunkt fuer neue oder zurueckkehrende Entwickler. Die fachliche L
 
 ## Zweck des Projekts
 
-`aktien_oop` entwickelt einen nachvollziehbaren Backtest-/Runner-Workflow fuer Aktienstrategien. Der Fokus liegt auf Strategieanalyse, Profilvergleich, Paper-Reports und kontrollierter Human Review, nicht auf automatischer Orderausfuehrung.
+`aktien_oop` entwickelt einen nachvollziehbaren Workflow zur Analyse und Auswahl von Aktienstrategien im Backtest- und Paper-Betrieb. Der Fokus liegt auf Strategieanalyse, Profilvergleich, Paper-Reports und kontrollierter menschlicher Bewertung, nicht auf produktivem Handel oder automatischer Orderausfuehrung.
 
 ## Aktueller Projektstand
 
@@ -12,7 +12,9 @@ Der letzte dokumentierte Stand ist `09.70 Phase-9-Zwischenabschluss` in `docs/st
 
 Phase 9 ist dokumentarisch zwischenabgeschlossen. Sie hat Zielbild, Datenmodell, Quellenstrategie und Sicherheitsgrenzen fuer eine spaetere historische `balanced_v1`-Positionsdatenbasis geklaert. Es wurde bewusst keine technische Umsetzung gestartet und keine historische Datenbasis erzeugt.
 
-Abgeschlossene relevante Vorarbeiten sind nur knapp einzuordnen: Strategieprofile sind dokumentiert und nutzbar, `balanced_v1` wurde in Robustheits-, Marktphasen-, Drawdown- und Risk-Metrics-Analysen als Hauptkandidat bestaetigt, und der Paper-Workflow fuer lokale Portfolio-Dateien ist dokumentiert.
+Der historische Paper-Replay-Minimalstand aus Phase 8 ist technisch mit einer kleinen synthetischen Positionsdatenbasis erprobt. Das ist keine echte historische `balanced_v1`-Positionsdatenbasis.
+
+Abgeschlossene relevante Vorarbeiten sind nur knapp einzuordnen: Strategieprofile sind implementiert und fuer Backtests sowie kontrollierte Runner-Auswertungen verwendbar, daraus folgt aber keine Live- oder Handelsfreigabe. `balanced_v1` wurde in Robustheits-, Marktphasen-, Drawdown- und Risk-Metrics-Analysen als Hauptkandidat bestaetigt, und der Paper-Workflow fuer lokale Portfolio-Dateien ist dokumentiert.
 
 ## Aktueller fachlicher Hauptkandidat
 
@@ -24,7 +26,7 @@ Belegt ist das in `docs/strategy_analysis.md` durch Profilvergleiche, Marktphase
 
 Der sichere operative Modus ist Paper-Betrieb mit Human Review.
 
-Der Paper-Runner erzeugt technische Vorschlagsreports mit Buy/Sell/Hold-Proposals als Delta- und Gewichtungs-Pruefsignale. Diese Proposals sind keine Anlageempfehlung, keine Ordervorbereitung und keine Ausfuehrungslogik.
+Der Paper-Runner vergleicht ein manuell gepflegtes Portfolio mit der aktuellen Zielauswahl eines Strategieprofils. Daraus entstehen technische Buy-, Sell- und Hold-Vorschlaege, die ausschliesslich der menschlichen Pruefung dienen.
 
 Explizite Grenzen:
 
@@ -48,13 +50,9 @@ Explizite Grenzen:
 
 ## Was ausdruecklich noch nicht vorhanden ist
 
-- keine echte historische `balanced_v1`-Positionsdatenbasis
-- keine echten historischen `balanced_v1`-Stichtagsdateien
-- kein Manifest-/Index-Artefakt fuer historische `balanced_v1`-Stichtage
-- kein Generator fuer historische Positionsdaten
-- kein Validator fuer historische Positionsdaten
-- keine Batch-Erzeugung historischer Stichtage
-- keine Aenderung am Paper-Runner fuer Phase 9
+- keine echte historische `balanced_v1`-Positionsdatenbasis mit Stichtagsdateien, Manifest oder Index
+- kein Generator, Validator oder Batch-Prozess fuer historische Positionsdaten
+- keine Integration historischer Positionsdaten in den Paper-Runner
 - keine Broker-, Live-, Order-, Stueckzahl-, Euro- oder Depotgroessenlogik
 - keine Investitions-, Handels-, Performance- oder Umsetzungsfreigabe
 
@@ -67,4 +65,6 @@ Explizite Grenzen:
 - `docs/adr/001-v1a-architecture.md`: grundlegende Architekturentscheidung.
 - `docs/adr/001-va1-current-state.md`, `docs/adr/001-va1-next-step.md`, `docs/adr/001-va1-reference.md`: frueher Projektkontext und Vertical-Slice-Ausgangspunkt.
 
-Diese Datei soll mitgepflegt werden, wenn sich der uebergeordnete Projektstand aendert: aktueller Phasenstand, fachlicher Hauptkandidat, verfuegbarer Workflow, Sicherheitsgrenzen, wichtige vorhandene Artefakte oder ausdruecklich noch nicht vorhandene Bestandteile. Sie ist nicht fuer jede kleine Codeaenderung gedacht.
+## Pflege dieses Dokuments
+
+Diese Datei wird nur aktualisiert, wenn sich uebergeordnete Aussagen aendern, zum Beispiel aktueller Phasen- oder Projektstand, fachlicher Hauptkandidat, verfuegbarer Workflow, Sicherheitsgrenzen, wichtige vorhandene Artefakte oder ausdruecklich noch nicht vorhandene Bestandteile. Sie ist nicht fuer jede kleine Code-, Test- oder Refactoring-Aenderung gedacht.
