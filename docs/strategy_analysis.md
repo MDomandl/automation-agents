@@ -10582,3 +10582,160 @@ Es wurden keine Daten, Verzeichnisse, Skripte, Tests, Reports oder Runs erzeugt.
 Der naechste moegliche Schritt waere eine sehr kleine Strukturvorbereitung, benoetigt aber eine eigene Freigabe.
 
 Es besteht weiterhin keine historische Positionsdatenbasis und keine Investitionsfreigabe.
+
+## 10.20 Minimale Verzeichnis- und README-Struktur planen
+
+### Ausgangslage
+
+10.10 hat die zulaessige technische Minimalgrenze fuer Phase 10 festgelegt.
+
+Bevor Verzeichnisse oder Dateien angelegt werden, soll die kleinstmoegliche sinnvolle Struktur dokumentiert werden.
+
+Die Struktur dient ausschliesslich der spaeteren kontrollierten Ablage und Pruefung historischer Positionsdateien.
+
+Diese Planung erzeugt noch keine Datenbasis und stellt keine technische Freigabe zur Datenerzeugung dar.
+
+### Ziel der Strukturplanung
+
+Die geplante Struktur soll spaeter historische Positionsdateien klar von bestehenden Paper-, Backtest- und Report-Artefakten trennen.
+
+Zweck und Grenzen sollen direkt am Ablageort verstaendlich sein.
+
+Die Struktur soll eine manuelle Pruefung unterstuetzen.
+
+Fehlende, ungepruefte und freigegebene Inhalte sollen unterscheidbar bleiben.
+
+Die Struktur darf keine automatische Verarbeitung voraussetzen.
+
+Bestehende Runner- oder Strategiearchitektur darf dadurch nicht veraendert werden.
+
+Die Struktur soll klein genug bleiben, damit sie vollstaendig menschlich ueberblickt werden kann.
+
+### Vorlaeufiger Verzeichnisvorschlag
+
+Ein bewusst kleiner vorlaeufiger Ablageort waere:
+
+`data/historical_positions/balanced_v1/`
+
+Innerhalb dieses Verzeichnisses sollen zunaechst hoechstens folgende Bestandteile vorgesehen werden:
+
+* `README.md`
+* spaeter eventuell ein Unterverzeichnis fuer einzelne Stichtagsdateien
+* spaeter eventuell ein Manifest- oder Index-Artefakt
+* spaeter eventuell ein Schema oder eine Schema-Dokumentation
+
+Die genaue Unterstruktur wird in 10.20 noch nicht verbindlich umgesetzt.
+
+`data/` passt grundsaetzlich zur bestehenden Projektstruktur, weil dort bereits beispielhafte Datenartefakte abgelegt sind. Bestehende Report-Artefakte liegen dagegen unter `reports/`, Beispiel-Portfolio-Dateien unter `examples/` beziehungsweise `portfolios/`.
+
+Falls sich bei einer spaeteren technischen Pruefung eine bereits etabliertere Datenablage im Repository zeigt, muss diese vor dem Anlegen einer neuen Struktur beruecksichtigt werden.
+
+In 10.20 wird keine neue Struktur angelegt.
+
+Vorhandene Datenverzeichnisse werden nicht umbenannt oder verschoben.
+
+### Geplanter Zweck der README
+
+Eine spaetere `README.md` am Ablageort soll mindestens folgende Punkte erklaeren:
+
+* Zweck der historischen `balanced_v1`-Positionsdatenbasis
+* Abgrenzung zu Paper-Runs, Backtests, Portfolios und Reports
+* erlaubte und nicht erlaubte Inhalte
+* erwartetes Dateiformat
+* Stichtags- und Namenskonvention
+* Statusmodell
+* Human-Review-Ablauf
+* Umgang mit fehlenden oder unklaren Daten
+* Hinweis, dass technische Validierung keine fachliche Freigabe ersetzt
+* Verbot automatischer Schaetzung, Ergaenzung oder Fortschreibung
+* Verweis auf die massgeblichen Abschnitte in `docs/strategy_analysis.md`
+
+### Vorlaeufige Strukturvarianten
+
+Variante A - flache Minimalstruktur:
+
+`data/historical_positions/balanced_v1/`
+
+* `README.md`
+* einzelne Stichtagsdateien
+* spaeter `manifest.json`
+
+Variante B - leicht getrennte Struktur:
+
+`data/historical_positions/balanced_v1/`
+
+* `README.md`
+* `positions/`
+* spaeter `manifest.json`
+* spaeter `schema/`
+
+Fuer wenige manuell kontrollierte Dateien kann eine flache Struktur zunaechst ausreichen.
+
+Eine Unterteilung soll erst eingefuehrt werden, wenn sie einen konkreten Nutzen hat, zum Beispiel bei mehreren Stichtagsdateien, separater Schema-Dokumentation oder klarer Trennung zwischen Daten und Metadaten.
+
+Es soll keine vorsorglich umfangreiche Ordnerhierarchie angelegt werden.
+
+10.20 legt noch keine endgueltige technische Entscheidung fest, weil die vorhandene Repository-Struktur vor einer Umsetzung nochmals gezielt geprueft werden muss.
+
+### Namens- und Verantwortungsgrenzen
+
+`balanced_v1` muss im Pfad oder in Metadaten eindeutig erkennbar bleiben.
+
+Historische Positionsdateien duerfen nicht mit aktuellen Portfolio-, Paper- oder Runner-Zustaenden verwechselt werden.
+
+Der Ablageort ist kein Eingabeverzeichnis fuer automatische Runner-Ausfuehrung.
+
+Das Vorhandensein einer Datei bedeutet weder technische Gueltigkeit noch fachliche Freigabe.
+
+Eine README dokumentiert den Prozess, erzeugt aber keine fachliche Autoritaet.
+
+Bestehende Runner duerfen Dateien aus diesem Verzeichnis nicht automatisch erkennen oder konsumieren.
+
+### Ausdruecklich nicht Teil von 10.20
+
+Nicht Teil von 10.20 sind:
+
+* kein neues Verzeichnis
+* keine neue README-Datei
+* keine Stichtagsdatei
+* kein Manifest
+* kein Index
+* kein Schema
+* kein Validator
+* kein Generator
+* keine Tests
+* keine Reports
+* keine Runs
+* keine Aenderung bestehender Datenpfade
+* keine Aenderung des Paper-Runners
+* keine automatische Dateierkennung
+* keine Batch-Verarbeitung
+* keine historischen Positionsdaten
+* keine Benchmark-, Performance- oder Drawdown-Auswertung
+* keine Investitionsfreigabe
+
+### Vorlaeufige Empfehlung
+
+Ein einzelner, klar benannter Ablageort fuer `balanced_v1` ist sinnvoll.
+
+Die Struktur soll zunaechst so klein wie moeglich bleiben.
+
+Eine README sollte das erste tatsaechlich angelegte Artefakt sein.
+
+Stichtagsdateien, Manifest, Schema und Validator sollen jeweils eigene, getrennt freizugebende Schritte bleiben.
+
+Vor einer technischen Umsetzung soll die geplante Struktur nochmals mit der vorhandenen Repository-Struktur abgeglichen werden.
+
+### Ergebnis von 10.20
+
+Eine minimale spaetere Verzeichnis- und README-Struktur ist fachlich geplant.
+
+Es wurde noch keine Struktur angelegt.
+
+Es wurden keine Dateien, Daten, Skripte, Tests, Reports oder Runs erzeugt.
+
+Der naechste moegliche Schritt waere eine kontrollierte Pruefung der vorhandenen Repository-Struktur und danach gegebenenfalls das isolierte Anlegen von Verzeichnis und README.
+
+Dieser naechste Schritt benoetigt eine eigene Freigabe.
+
+Es besteht weiterhin keine historische Positionsdatenbasis und keine Investitionsfreigabe.
