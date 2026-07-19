@@ -4,6 +4,8 @@ This repository contains a reusable architecture for building automation agents.
 
 The goal is to create small, specialized agents that automate recurring tasks while remaining easy to test, extend and maintain.
 
+**Current aktien_oop project status:** see `docs/project-status.md` for the short human entry point to the current state, safe workflow and open boundaries.
+
 The first implemented agent is the **BT/RUN Agent**, which orchestrates the following workflow:
 
 1. Run the backtester
