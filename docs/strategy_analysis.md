@@ -10472,3 +10472,113 @@ Es wurden keine historischen Positionsdaten erzeugt.
 Es wurde keine technische Umsetzung gestartet.
 
 Vor jeder echten Umsetzung ist eine separate Entscheidung noetig.
+
+## 10.10 Zielbild Phase 10 & technische Minimalgrenze
+
+### Ausgangslage
+
+Phase 9 hat Zielbild, Datenherkunft, Sicherheitsrahmen, Datenformat, Stichtagsmodell, Namenskonventionen, Manifest-/Index-Konzept, Quellenstrategie und kontrollierte Stichtagsauswahl dokumentiert.
+
+Es existiert weiterhin keine echte historische `balanced_v1`-Positionsdatenbasis.
+
+Phase 10 beginnt daher nicht mit einer Datenerzeugung, sondern mit einer klar abgegrenzten technischen Minimalvorbereitung.
+
+10.10 selbst bleibt ein reiner Dokumentationsschritt.
+
+### Zielbild von Phase 10
+
+Phase 10 darf nur kleine, einzeln pruefbare und nachvollziehbare Grundlagen vorbereiten.
+
+Moegliche spaetere Einzelschritte innerhalb von Phase 10 waeren zum Beispiel:
+
+* eine minimale Verzeichnisstruktur
+* eine kurze README fuer Zweck, Grenzen und manuellen Ablauf
+* ein maschinenlesbares Schema oder ein klar dokumentiertes Schema-Konzept
+* ein kleiner Validator fuer bereits manuell bereitgestellte Dateien
+* ein minimales Manifest-/Index-Grundgeruest
+* isolierte Tests fuer rein strukturelle Validierung
+* eine kontrollierte Beispieldatei mit ausdruecklich synthetischen oder rein schematischen Daten, falls sie in einem spaeteren Schritt wirklich benoetigt wird
+
+Diese Punkte sind nur moegliche spaetere Einzelschritte innerhalb von Phase 10.
+
+In 10.10 wird davon noch nichts technisch umgesetzt.
+
+### Technische Minimalgrenze
+
+Jede spaetere technische Umsetzung in Phase 10 muss klein und einzeln reviewbar bleiben.
+
+Sie soll nur neue, klar abgegrenzte Dateien betreffen.
+
+Bestehende Runner- und Paper-Logik darf nicht veraendert werden.
+
+Spaetere technische Schritte duerfen keine historischen Positionen berechnen oder ableiten.
+
+Sie duerfen keine Strategieausfuehrung starten.
+
+Vorhandene Reports duerfen nicht nachtraeglich als echte historische Daten umgedeutet werden.
+
+Eine automatisierte Verarbeitung groesserer Stichtagsmengen ist nicht Bestandteil der Minimalvorbereitung.
+
+Phase 10 muss ohne Netzwerk-, Broker- oder externe Handelssystemanbindung auskommen.
+
+Human Review bleibt zwingend.
+
+Bei fehlenden oder unklaren Daten muss ein spaeterer technischer Schritt sichtbar und sicher abbrechen beziehungsweise den Zustand als fehlend oder ungeprueft kennzeichnen.
+
+### Ausdruecklich ausserhalb von Phase 10 beziehungsweise noch nicht freigegeben
+
+Fuer Phase 10 sind weiterhin nicht freigegeben:
+
+* echte historische Positionsdaten
+* Ableitung konkreter Stichtagspositionen
+* historische `balanced_v1`-Runs
+* echte Paper-Runs
+* Batch-Verarbeitung
+* automatisches Durchlaufen einer Stichtagsliste
+* Aenderung an `scripts/run_bt_run_agent.py` oder bestehender Paper-Runner-Logik
+* Broker-, Live-, Order-, Stueckzahl-, Euro- oder Depotgroessenlogik
+* Portfolioausfuehrung
+* Benchmark-, Rendite-, Risiko-, Drawdown- oder Performance-Auswertung
+* Aussage ueber reale Handelbarkeit
+* Investitionsentscheidung oder Investitionsfreigabe
+* automatische Freigabe erzeugter oder gepruefter Dateien
+
+### Human Review und Statusmodell
+
+Jede spaetere Datei oder Struktur bleibt zunaechst Entwurf beziehungsweise ungeprueft.
+
+Eine technische Schema- oder Validator-Pruefung ersetzt keine fachliche Pruefung.
+
+Moegliche Statuswerte sollen weiterhin klar unterscheiden, zum Beispiel zwischen `planned`, `missing`, `draft`, `validated` und `approved`.
+
+`validated` darf lediglich technische beziehungsweise strukturelle Gueltigkeit bedeuten.
+
+`approved` darf nur nach bewusster manueller Pruefung vergeben werden.
+
+Fehlende Daten duerfen nicht automatisch ergaenzt, geschaetzt oder aus benachbarten Stichtagen uebernommen werden.
+
+### Sinnvolle Reihenfolge der weiteren Phase 10
+
+Eine vorlaeufig sinnvolle Reihenfolge fuer Phase 10 koennte sein:
+
+* 10.10 Zielbild Phase 10 & technische Minimalgrenze
+* anschliessend eventuell minimale Verzeichnis- und README-Struktur
+* danach eventuell Schema oder Schema-Dokumentation
+* danach eventuell isolierter Validator
+* danach eventuell kleine Validator-Tests
+* erst deutlich spaeter eine manuell kontrollierte einzelne Beispieldatei
+* weiterhin keine echte Datenerzeugung ohne einen eigenen ausdruecklich freigegebenen Schritt
+
+Diese Reihenfolge ist vorlaeufig und begruendet noch keine technische Umsetzung.
+
+### Ergebnis von 10.10
+
+Phase 10 ist fachlich und technisch abgegrenzt.
+
+10.10 veraendert ausschliesslich die Dokumentation.
+
+Es wurden keine Daten, Verzeichnisse, Skripte, Tests, Reports oder Runs erzeugt.
+
+Der naechste moegliche Schritt waere eine sehr kleine Strukturvorbereitung, benoetigt aber eine eigene Freigabe.
+
+Es besteht weiterhin keine historische Positionsdatenbasis und keine Investitionsfreigabe.
