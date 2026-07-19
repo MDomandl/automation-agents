@@ -10739,3 +10739,71 @@ Der naechste moegliche Schritt waere eine kontrollierte Pruefung der vorhandenen
 Dieser naechste Schritt benoetigt eine eigene Freigabe.
 
 Es besteht weiterhin keine historische Positionsdatenbasis und keine Investitionsfreigabe.
+
+## 10.30 Minimale Verzeichnis- und README-Struktur angelegt
+
+### Ausgangslage
+
+10.20 hat den Pfad `data/historical_positions/balanced_v1/` als plausible Minimalstruktur geplant.
+
+Bestehende Datenstrukturen bleiben unveraendert.
+
+Der Schritt setzt ausschliesslich Verzeichnis und README um.
+
+### Umsetzung
+
+Angelegt wurde das Verzeichnis:
+
+`data/historical_positions/balanced_v1/`
+
+Angelegt wurde die README:
+
+`data/historical_positions/balanced_v1/README.md`
+
+Die README beschreibt den Zweck als spaeteren, kontrolliert aufzubauenden Ablageort fuer historische `balanced_v1`-Positionsdaten.
+
+Sie grenzt den Ablageort von aktuellen Portfolios, Paper-Runs, Backtest-Artefakten, Reports, Runner-Zustaenden sowie Live- oder Broker-Systemen ab.
+
+Sie dokumentiert, dass Dateien in diesem Verzeichnis nicht automatisch als aktuelle oder ausfuehrbare Portfoliozustaende interpretiert werden duerfen.
+
+Das Statusmodell unterscheidet die Werte `planned`, `missing`, `draft`, `validated` und `approved`.
+
+`validated` bedeutet nur technische beziehungsweise strukturelle Pruefung und keine fachliche Freigabe.
+
+`approved` darf nicht automatisch vergeben werden.
+
+Human Review bleibt zwingend.
+
+Eine automatische Nutzung durch bestehende Runner ist ausgeschlossen.
+
+### Ausdruecklich nicht umgesetzt
+
+Nicht umgesetzt wurden:
+
+* keine historischen Positionsdaten
+* keine Stichtagsdateien
+* kein Manifest oder Index
+* kein Schema
+* kein Validator
+* kein Generator
+* keine Tests
+* keine Reports
+* keine Runs
+* keine Batch-Verarbeitung
+* keine Aenderung bestehender Runner- oder Paper-Logik
+* keine Aufraeumarbeiten an vorhandenen Datenstrukturen
+* keine Broker-, Live-, Order-, Stueckzahl-, Euro- oder Depotgroessenlogik
+* keine Performance-, Benchmark-, Risiko- oder Drawdown-Auswertung
+* keine Investitionsfreigabe
+
+### Ergebnis
+
+Die minimale technische Ablagestruktur ist vorhanden.
+
+Das Verzeichnis enthaelt ausschliesslich die README.
+
+Es besteht weiterhin keine historische `balanced_v1`-Positionsdatenbasis.
+
+Der naechste moegliche Schritt waere die Planung eines minimalen Schemas beziehungsweise einer Schema-Dokumentation.
+
+Dieser Schritt benoetigt eine eigene Freigabe.
