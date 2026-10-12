@@ -6,13 +6,14 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-AI_AGENTS_ROOT = Path(
-    os.environ.get(
-        "AI_AGENTS_ROOT",
-        r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents",
-    )
-)
+ai_agents_root_value = os.environ.get("AI_AGENTS_ROOT")
+if not ai_agents_root_value:
+    pytest.skip("requires AI_AGENTS_ROOT for KiAgents integration tests", allow_module_level=True)
+AI_AGENTS_ROOT = Path(ai_agents_root_value)
+if not (AI_AGENTS_ROOT / "aktien_oop" / "store.py").exists():
+    pytest.skip("AI_AGENTS_ROOT does not contain KiAgents", allow_module_level=True)
 if str(AI_AGENTS_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_AGENTS_ROOT))
 

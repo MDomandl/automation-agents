@@ -569,8 +569,6 @@ class BtRunAgent:
                         pandas_module=pandas_module,
                     )
                     bt_store.save_positions(frame, snapshot_as_of=as_of)
-            else:
-                bt_store.save_positions(bt_frame)
 
             previous_snapshot = bt_store.load_positions_snapshot_before(runner_as_of)
 
@@ -619,21 +617,33 @@ class BtRunAgent:
         if not weights:
             return pandas_module.DataFrame(columns=["as_of", "ticker", "weight"])
 
+        positions = bt_frame.iloc[0:0].copy()
         if "as_of" in bt_frame.columns:
             normalized_dates = pandas_module.to_datetime(
                 bt_frame["as_of"], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
             positions = bt_frame.loc[normalized_dates == as_of].copy()
-            if not positions.empty:
-                return positions
 
-        return pandas_module.DataFrame(
-            [
-                {"as_of": as_of, "ticker": ticker, "weight": weight}
-                for ticker, weight in sorted(weights.items())
-            ],
-            columns=["as_of", "ticker", "weight"],
-        )
+        if "ticker" in positions.columns:
+            positions["ticker"] = positions["ticker"].astype(str)
+            positions = positions[positions["ticker"].isin(weights)]
+            positions = positions.drop_duplicates(subset=["ticker"], keep="last")
+
+        rows_by_ticker = {
+            str(row["ticker"]): row.to_dict()
+            for _, row in positions.iterrows()
+            if "ticker" in row
+        }
+        has_allocation_pct = "allocation_pct" in bt_frame.columns
+        reconciled_rows = []
+        for ticker, weight in sorted(weights.items()):
+            row = rows_by_ticker.get(ticker, {})
+            row.update({"as_of": as_of, "ticker": ticker, "weight": weight})
+            if has_allocation_pct:
+                row["allocation_pct"] = weight * 100.0
+            reconciled_rows.append(row)
+
+        return pandas_module.DataFrame(reconciled_rows)
 
     @staticmethod
     def _load_config_as_of(config_path: Path | None) -> str | None:
