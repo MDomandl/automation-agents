@@ -288,6 +288,38 @@ class BtRunAgent:
 
         return sorted(as_ofs)
 
+    def _load_bt_snapshot_states_from_current_run(self) -> dict[str, bool]:
+        """Return whether each valid BT decision snapshot contains positions."""
+        if self._decisions_dir is None or not self._decisions_dir.exists():
+            return {}
+
+        states: dict[str, bool] = {}
+        for path in sorted(self._decisions_dir.glob("BT_*.json")):
+            try:
+                with path.open("r", encoding="utf-8") as file_obj:
+                    payload = json.load(file_obj)
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            as_of = payload.get("as_of")
+            if not isinstance(as_of, str) or not as_of.strip():
+                continue
+
+            weights = self._bundle_weights_value(payload)
+            if weights is None:
+                continue
+            states[as_of.strip()] = bool(weights)
+
+        return states
+
+    @staticmethod
+    def _bundle_weights_value(payload: dict) -> dict | list | None:
+        for field in ("new_weights", "weights", "positions"):
+            value = payload.get(field)
+            if isinstance(value, (dict, list)):
+                return value
+        return None
+
     @staticmethod
     def _filter_phase_as_ofs(
         as_ofs: list[str],
@@ -412,6 +444,7 @@ class BtRunAgent:
                 bt_positions_path=bt_positions_path,
                 runner_positions_path=runner_positions_path,
                 runner_as_of=runner_as_of,
+                bt_snapshot_states=self._load_bt_snapshot_states_from_current_run(),
             )
         except Exception as exc:
             return RunnerPreviousSeedResult(
@@ -467,6 +500,7 @@ class BtRunAgent:
         bt_positions_path: Path,
         runner_positions_path: Path,
         runner_as_of: str,
+        bt_snapshot_states: dict[str, bool] | None = None,
     ) -> RunnerPreviousSeedResult:
         if not bt_positions_path.exists():
             return RunnerPreviousSeedResult(
@@ -478,35 +512,77 @@ class BtRunAgent:
             )
 
         bt_rows = cls._read_csv_rows(bt_positions_path)
-        if not bt_rows:
-            return RunnerPreviousSeedResult(
-                seeded=False,
-                message=(
-                    "[INFO] Runner previous-state seed skipped: "
-                    f"BT positions empty: {bt_positions_path}"
-                ),
-            )
+        known_states = bt_snapshot_states or {}
+        known_previous_as_ofs = [as_of for as_of in known_states if as_of < runner_as_of]
 
-        previous_rows = cls._latest_rows_before(bt_rows, runner_as_of)
-        if not previous_rows:
-            return RunnerPreviousSeedResult(
-                seeded=False,
-                message=(
-                    "[INFO] Runner previous-state seed skipped: "
-                    f"runner_as_of={runner_as_of}, no BT snapshot before runner_as_of"
-                ),
+        if known_states:
+            if not known_previous_as_ofs:
+                return RunnerPreviousSeedResult(
+                    seeded=False,
+                    message=(
+                        "[INFO] Runner previous-state seed skipped: "
+                        f"runner_as_of={runner_as_of}, no BT snapshot before runner_as_of"
+                    ),
+                )
+            previous_as_of = max(known_previous_as_ofs)
+            previous_rows = sorted(
+                (dict(row) for row in bt_rows if row.get("as_of") == previous_as_of),
+                key=lambda row: row.get("ticker", ""),
             )
+            expected_positions = known_states[previous_as_of]
+            if not expected_positions:
+                previous_rows = []
+            elif not previous_rows:
+                return RunnerPreviousSeedResult(
+                    seeded=False,
+                    message=(
+                        "[WARN] Runner previous-state seed skipped: "
+                        f"BT snapshot {previous_as_of} is non-empty in its decision bundle "
+                        "but has no positions CSV rows"
+                    ),
+                )
+        else:
+            if not bt_rows:
+                return RunnerPreviousSeedResult(
+                    seeded=False,
+                    message=(
+                        "[INFO] Runner previous-state seed skipped: "
+                        f"BT positions empty: {bt_positions_path}"
+                    ),
+                )
 
-        previous_as_of = previous_rows[0]["as_of"]
+            previous_rows = cls._latest_rows_before(bt_rows, runner_as_of)
+            if not previous_rows:
+                return RunnerPreviousSeedResult(
+                    seeded=False,
+                    message=(
+                        "[INFO] Runner previous-state seed skipped: "
+                        f"runner_as_of={runner_as_of}, no BT snapshot before runner_as_of"
+                    ),
+                )
+            previous_as_of = previous_rows[0]["as_of"]
+
+        cls._complete_pending_snapshot_write(runner_positions_path)
         existing_rows = (
             cls._read_csv_rows(runner_positions_path) if runner_positions_path.exists() else []
         )
         existing_rows = [row for row in existing_rows if row.get("as_of") != previous_as_of]
         combined_rows = cls._dedupe_position_rows(existing_rows + previous_rows)
         fieldnames = cls._merged_fieldnames(existing_rows + previous_rows)
+        if not fieldnames:
+            fieldnames = cls._read_csv_fieldnames(runner_positions_path)
+        if not fieldnames:
+            fieldnames = cls._read_csv_fieldnames(bt_positions_path)
+        if not fieldnames:
+            fieldnames = ["as_of", "ticker"]
 
         runner_positions_path.parent.mkdir(parents=True, exist_ok=True)
-        cls._write_csv_rows(runner_positions_path, combined_rows, fieldnames)
+        cls._write_snapshot_files(
+            runner_positions_path=runner_positions_path,
+            rows=combined_rows,
+            fieldnames=fieldnames,
+            snapshot_as_of=previous_as_of,
+        )
 
         return RunnerPreviousSeedResult(
             seeded=True,
@@ -526,6 +602,16 @@ class BtRunAgent:
                 line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
             )
             return list(csv.DictReader(lines))
+
+    @staticmethod
+    def _read_csv_fieldnames(path: Path) -> list[str]:
+        if not path.exists():
+            return []
+        with path.open("r", encoding="utf-8", newline="") as file_obj:
+            lines = (
+                line for line in file_obj if line.strip() and not line.lstrip().startswith("#")
+            )
+            return list(csv.DictReader(lines).fieldnames or [])
 
     @classmethod
     def _latest_rows_before(cls, rows: list[dict[str, str]], as_of: str) -> list[dict[str, str]]:
@@ -565,6 +651,60 @@ class BtRunAgent:
             writer = csv.DictWriter(file_obj, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
+
+    @classmethod
+    def _complete_pending_snapshot_write(cls, runner_positions_path: Path) -> None:
+        snapshots_path = runner_positions_path.with_name("portfolio_snapshots.csv")
+        positions_pending_path = runner_positions_path.with_name(
+            "portfolio_positions.csv.pending"
+        )
+        snapshots_pending_path = runner_positions_path.with_name(
+            "portfolio_snapshots.csv.pending"
+        )
+        if not snapshots_pending_path.exists():
+            return
+        if positions_pending_path.exists():
+            positions_pending_path.replace(runner_positions_path)
+        snapshots_pending_path.replace(snapshots_path)
+
+    @classmethod
+    def _write_snapshot_files(
+        cls,
+        *,
+        runner_positions_path: Path,
+        rows: list[dict[str, str]],
+        fieldnames: list[str],
+        snapshot_as_of: str,
+    ) -> None:
+        snapshots_path = runner_positions_path.with_name("portfolio_snapshots.csv")
+        positions_pending_path = runner_positions_path.with_name(
+            "portfolio_positions.csv.pending"
+        )
+        snapshots_pending_path = runner_positions_path.with_name(
+            "portfolio_snapshots.csv.pending"
+        )
+        snapshots_staging_path = runner_positions_path.with_name(
+            "portfolio_snapshots.csv.pending.tmp"
+        )
+
+        snapshot_dates = set()
+        if snapshots_path.exists():
+            snapshot_dates = {
+                row["as_of"]
+                for row in cls._read_csv_rows(snapshots_path)
+                if row.get("as_of")
+            }
+        snapshot_dates.add(snapshot_as_of)
+
+        cls._write_csv_rows(positions_pending_path, rows, fieldnames)
+        cls._write_csv_rows(
+            snapshots_staging_path,
+            [{"as_of": as_of} for as_of in sorted(snapshot_dates)],
+            ["as_of"],
+        )
+        snapshots_staging_path.replace(snapshots_pending_path)
+        positions_pending_path.replace(runner_positions_path)
+        snapshots_pending_path.replace(snapshots_path)
 
     @staticmethod
     def _load_config_as_of(config_path: Path | None) -> str | None:

@@ -41,6 +41,10 @@ Explizite Grenzen:
 
 - Layered-Agent-Architektur mit Agent, Tools, Application, Domain und Infrastructure laut ADR und Guidelines.
 - Backtest-/Runner-Orchestrierung fuer den BT/RUN Agent.
+- Die BT-zu-Runner-Seed-Logik unterscheidet fehlende, explizit leere und
+  nicht-leere Positions-Snapshots. Leere BT-Decision-Snapshots werden als
+  autoritativer Flat-Zustand in `portfolio_snapshots.csv` festgehalten; fehlende
+  oder widerspruechliche Daten werden nicht als leer angenommen.
 - Strategieprofile unter `configs/profiles/`, darunter `balanced_v1`, `conservative_v1` und `offensive_v1`.
 - Langdokumentation der Strategieanalyse in `docs/strategy_analysis.md`.
 - Paper-Runner-Workflow mit lokaler Portfolio-CSV und Human Review in `docs/paper_runner_workflow.md`.
