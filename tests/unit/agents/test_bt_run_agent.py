@@ -1,4 +1,9 @@
+import importlib
+import os
+import sys
 from pathlib import Path
+
+import pandas as pd
 
 from app.agents.bt_run_agent import BtRunAgent, BtRunAgentInput, BtRunCompareInput
 from app.application.bt_run.dto import CompareAllRunsResponse, CompareLatestRunsResponse
@@ -11,6 +16,16 @@ from app.infrastructure.storage.config_loader import ConfigLoader
 from app.tools.compare.compare_config_tool import CompareConfigTool, CompareConfigToolResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
+
+AI_AGENTS_ROOT = Path(
+    os.environ.get(
+        "AI_AGENTS_ROOT",
+        r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents",
+    )
+)
+if str(AI_AGENTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_AGENTS_ROOT))
+PortfolioStore = importlib.import_module("aktien_oop.store").PortfolioStore
 
 
 class FakeProcessToolResult:
@@ -996,6 +1011,8 @@ def test_bt_run_agent_seed_replaces_duplicate_runner_snapshot_rows(tmp_path: Pat
         bt_positions_path=bt_positions_path,
         runner_positions_path=runner_positions_path,
         runner_as_of="2025-10-08",
+        portfolio_store_type=PortfolioStore,
+        pandas_module=pd,
     )
 
     persisted = runner_positions_path.read_text(encoding="utf-8")
@@ -1019,10 +1036,21 @@ def test_bt_run_agent_seed_skips_when_no_backtest_previous_snapshot_exists(tmp_p
         encoding="utf-8",
     )
 
+    runner_store = PortfolioStore(tmp_path)
+    runner_store.save_positions(
+        pd.DataFrame(
+            [{"as_of": "2025-08-29", "ticker": "EXISTING", "weight": 1.0}]
+        )
+    )
+    positions_before = runner_positions_path.read_text(encoding="utf-8")
+    snapshots_before = runner_store.snapshots_path.read_text(encoding="utf-8")
+
     result = BtRunAgent._seed_runner_positions_from_backtest_positions(
         bt_positions_path=bt_positions_path,
         runner_positions_path=runner_positions_path,
         runner_as_of="2025-10-08",
+        portfolio_store_type=PortfolioStore,
+        pandas_module=pd,
     )
 
     assert result.seeded is False
@@ -1030,7 +1058,8 @@ def test_bt_run_agent_seed_skips_when_no_backtest_previous_snapshot_exists(tmp_p
         "[INFO] Runner previous-state seed skipped: "
         "runner_as_of=2025-10-08, no BT snapshot before runner_as_of"
     )
-    assert not runner_positions_path.exists()
+    assert runner_positions_path.read_text(encoding="utf-8") == positions_before
+    assert runner_store.snapshots_path.read_text(encoding="utf-8") == snapshots_before
 
 
 def test_bt_run_agent_seed_persists_known_empty_snapshot_as_authoritative_flat_state(
@@ -1066,7 +1095,9 @@ def test_bt_run_agent_seed_persists_known_empty_snapshot_as_authoritative_flat_s
         bt_positions_path=bt_positions_path,
         runner_positions_path=runner_positions_path,
         runner_as_of="2025-10-08",
-        bt_snapshot_states={"2025-08-29": True, "2025-09-30": False},
+        bt_snapshots={"2025-08-29": {"OLDER": 1.0}, "2025-09-30": {}},
+        portfolio_store_type=PortfolioStore,
+        pandas_module=pd,
     )
 
     persisted = runner_positions_path.read_text(encoding="utf-8")
@@ -1079,7 +1110,7 @@ def test_bt_run_agent_seed_persists_known_empty_snapshot_as_authoritative_flat_s
     assert snapshot_index.splitlines() == ["as_of", "2025-09-30"]
 
 
-def test_bt_run_agent_seed_does_not_treat_missing_non_empty_rows_as_flat(
+def test_bt_run_agent_seed_uses_non_empty_decision_snapshot_without_csv_rows(
     tmp_path: Path,
 ) -> None:
     bt_positions_path = tmp_path / "bt_positions.csv"
@@ -1090,17 +1121,15 @@ def test_bt_run_agent_seed_does_not_treat_missing_non_empty_rows_as_flat(
         bt_positions_path=bt_positions_path,
         runner_positions_path=runner_positions_path,
         runner_as_of="2025-10-08",
-        bt_snapshot_states={"2025-09-30": True},
+        bt_snapshots={"2025-09-30": {"AAPL": 1.0}},
+        portfolio_store_type=PortfolioStore,
+        pandas_module=pd,
     )
 
-    assert result.seeded is False
-    assert result.message == (
-        "[WARN] Runner previous-state seed skipped: "
-        "BT snapshot 2025-09-30 is non-empty in its decision bundle "
-        "but has no positions CSV rows"
-    )
-    assert not runner_positions_path.exists()
-    assert not (tmp_path / "portfolio_snapshots.csv").exists()
+    assert result.seeded is True
+    assert result.previous_as_of == "2025-09-30"
+    assert "AAPL" in runner_positions_path.read_text(encoding="utf-8")
+    assert (tmp_path / "portfolio_snapshots.csv").exists()
 
 
 def test_bt_run_agent_seed_completes_pending_snapshot_commit_before_writing(
@@ -1126,7 +1155,9 @@ def test_bt_run_agent_seed_completes_pending_snapshot_commit_before_writing(
         bt_positions_path=bt_positions_path,
         runner_positions_path=runner_positions_path,
         runner_as_of="2025-10-08",
-        bt_snapshot_states={"2025-09-30": False},
+        bt_snapshots={"2025-09-30": {}},
+        portfolio_store_type=PortfolioStore,
+        pandas_module=pd,
     )
 
     assert result.seeded is True
@@ -1139,7 +1170,40 @@ def test_bt_run_agent_seed_completes_pending_snapshot_commit_before_writing(
     assert not (tmp_path / "portfolio_snapshots.csv.pending").exists()
 
 
-def test_bt_run_agent_loads_empty_and_non_empty_snapshot_states_from_decision_bundles(
+def test_bt_run_agent_seed_preserves_non_empty_empty_non_empty_history(
+    tmp_path: Path,
+) -> None:
+    bt_positions_path = tmp_path / "bt_positions.csv"
+    runner_positions_path = tmp_path / "portfolio_positions.csv"
+    bt_positions_path.write_text("as_of,ticker,weight\n", encoding="utf-8")
+    snapshots = {
+        "2025-09-30": {"OLD": 1.0},
+        "2025-10-31": {},
+        "2025-11-30": {"NEW": 1.0},
+    }
+
+    for runner_as_of in ("2025-10-15", "2025-11-15", "2025-12-15"):
+        result = BtRunAgent._seed_runner_positions_from_backtest_positions(
+            bt_positions_path=bt_positions_path,
+            runner_positions_path=runner_positions_path,
+            runner_as_of=runner_as_of,
+            bt_snapshots=snapshots,
+            portfolio_store_type=PortfolioStore,
+            pandas_module=pd,
+        )
+        assert result.seeded is True
+
+    store = PortfolioStore(tmp_path)
+    september = store.load_positions_snapshot_before("2025-10-15")
+    october = store.load_positions_snapshot_before("2025-11-15")
+    november = store.load_positions_snapshot_before("2025-12-15")
+
+    assert september is not None and september.positions["ticker"].tolist() == ["OLD"]
+    assert october is not None and october.positions.empty
+    assert november is not None and november.positions["ticker"].tolist() == ["NEW"]
+
+
+def test_bt_run_agent_loads_empty_and_non_empty_snapshots_from_decision_bundles(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "BT_001.json").write_text(
@@ -1163,7 +1227,7 @@ def test_bt_run_agent_loads_empty_and_non_empty_snapshot_states_from_decision_bu
         decisions_dir=tmp_path,
     )
 
-    assert agent._load_bt_snapshot_states_from_current_run() == {
-        "2025-09-30": True,
-        "2025-10-31": False,
+    assert agent._load_bt_snapshots_from_current_run() == {
+        "2025-09-30": {"AAPL": 1.0},
+        "2025-10-31": {},
     }

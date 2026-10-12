@@ -1,19 +1,25 @@
 from __future__ import annotations
 
+import importlib
+import os
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-
 AI_AGENTS_ROOT = Path(
-    r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents"
+    os.environ.get(
+        "AI_AGENTS_ROOT",
+        r"D:\Users\doman\Documents\OneDrive\Dokumente\Programmierung\Projekte\AiAgents",
+    )
 )
 if str(AI_AGENTS_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_AGENTS_ROOT))
 
-from aktien_oop.store import PortfolioStore
-from aktien_oop.core_calc import CalcParams, select_topk_buffer
+core_calc = importlib.import_module("aktien_oop.core_calc")
+PortfolioStore = importlib.import_module("aktien_oop.store").PortfolioStore
+CalcParams = core_calc.CalcParams
+select_topk_buffer = core_calc.select_topk_buffer
 
 
 def test_save_positions_keeps_history_and_loads_latest_previous_snapshot(tmp_path: Path) -> None:
@@ -50,7 +56,7 @@ def test_save_positions_keeps_history_and_loads_latest_previous_snapshot(tmp_pat
     assert prev["as_of"].dt.strftime("%Y-%m-%d").unique().tolist() == ["2025-10-08"]
 
 
-def test_save_positions_replaces_duplicate_as_of_ticker(tmp_path: Path) -> None:
+def test_save_positions_replaces_complete_snapshot_for_same_as_of(tmp_path: Path) -> None:
     store = PortfolioStore(tmp_path)
 
     store.save_positions(
@@ -73,7 +79,7 @@ def test_save_positions_replaces_duplicate_as_of_ticker(tmp_path: Path) -> None:
 
     assert len(persisted[persisted["ticker"] == "GLW"]) == 1
     assert persisted.loc[persisted["ticker"] == "GLW", "allocation_pct"].item() == 0.20
-    assert persisted["ticker"].tolist() == ["GLW", "STX"]
+    assert persisted["ticker"].tolist() == ["GLW"]
 
 
 def test_historical_positions_feed_buffer_selection(tmp_path: Path) -> None:
