@@ -88,6 +88,23 @@ def test_missing_snapshot_does_not_change_runner_state(
     assert runner_store.snapshots_path.read_text(encoding="utf-8") == snapshots_before
 
 
+def test_missing_decision_snapshots_do_not_fall_back_to_positions_csv(
+    tmp_path: Path, portfolio_store_type
+) -> None:
+    seeder, request, runner_store = _arrange(tmp_path, portfolio_store_type, snapshots={})
+    runner_store.save_positions(
+        pd.DataFrame([{"as_of": "2025-08-29", "ticker": "EXISTING", "weight": 1.0}]),
+        snapshot_as_of="2025-08-29",
+    )
+    positions_before = runner_store.positions_path.read_text(encoding="utf-8")
+
+    result = seeder.seed(request)
+
+    assert result.seeded is False
+    assert "no BT snapshot before runner_as_of" in result.message
+    assert runner_store.positions_path.read_text(encoding="utf-8") == positions_before
+
+
 def test_explicit_empty_snapshot_removes_stale_runner_positions(
     tmp_path: Path, portfolio_store_type
 ) -> None:

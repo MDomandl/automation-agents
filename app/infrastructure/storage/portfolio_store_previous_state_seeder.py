@@ -158,7 +158,7 @@ class PortfolioStorePreviousStateSeeder:
         bt_positions_path: Path,
         runner_positions_path: Path,
         runner_as_of: str,
-        bt_snapshots: dict[str, dict[str, float]],
+        bt_snapshots: dict[str, dict[str, float]] | None = None,
         portfolio_store_type: type,
         pandas_module: object,
     ) -> RunnerPreviousSeedResult:
@@ -178,7 +178,7 @@ class PortfolioStorePreviousStateSeeder:
                 if bt_positions_path.exists()
                 else pandas_module.DataFrame(columns=["as_of", "ticker", "weight"])
             )
-            for as_of, weights in sorted(bt_snapshots.items()):
+            for as_of, weights in sorted((bt_snapshots or {}).items()):
                 frame = cls._positions_for_snapshot(
                     bt_frame,
                     as_of=as_of,
