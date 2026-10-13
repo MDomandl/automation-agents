@@ -3,20 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.agents.bt_run_agent import BtRunAgent
+from app.application.bt_run.use_cases import (
+    CompareAllRunsUseCase,
+    CompareConfigUseCase,
+    CompareLatestRunsUseCase,
+)
 from app.infrastructure.process.subprocess_runner import SubprocessRunner
+from app.infrastructure.storage.config_loader import ConfigLoader
 from app.infrastructure.storage.decision_bundle_store import FileDecisionBundleStore
+from app.infrastructure.storage.portfolio_store_previous_state_seeder import (
+    PortfolioStorePreviousStateSeeder,
+)
+from app.tools.compare.compare_all_runs_tool import CompareAllRunsTool
+from app.tools.compare.compare_config_tool import CompareConfigTool
 from app.tools.compare.compare_latest_runs_tool import CompareLatestRunsTool
 from app.tools.process.run_backtest_tool import RunBacktestTool
 from app.tools.process.run_runner_tool import RunRunnerTool
-from app.application.bt_run.use_cases import (
-    CompareLatestRunsUseCase,
-    CompareAllRunsUseCase,
-)
-
-from app.tools.compare.compare_all_runs_tool import CompareAllRunsTool
-from app.infrastructure.storage.config_loader import ConfigLoader
-from app.application.bt_run.use_cases import CompareConfigUseCase
-from app.tools.compare.compare_config_tool import CompareConfigTool
 
 
 def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
@@ -42,4 +44,5 @@ def build_bt_run_agent(decisions_dir: str | Path) -> BtRunAgent:
         compare_all_runs_tool=compare_all_runs_tool,
         compare_config_tool=compare_config_tool,
         decisions_dir=decisions_dir,
+        runner_previous_state_seeder=PortfolioStorePreviousStateSeeder(),
     )
