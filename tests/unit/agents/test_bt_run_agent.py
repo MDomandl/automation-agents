@@ -1,6 +1,4 @@
-import importlib
 import os
-import sys
 from pathlib import Path
 
 import pandas as pd
@@ -21,17 +19,23 @@ from app.infrastructure.storage.portfolio_store_previous_state_seeder import (
 from app.tools.compare.compare_config_tool import CompareConfigTool, CompareConfigToolResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
 from app.tools.process.run_runner_tool import RunRunnerToolInput
+from scripts.validate_ai_agents_test_environment import (
+    EnvironmentValidationError,
+    audit_test_environment,
+    import_portfolio_store_module,
+)
 
 
 @pytest.fixture
 def portfolio_store_type():
     ai_agents_root = os.environ.get("AI_AGENTS_ROOT")
-    if ai_agents_root and ai_agents_root not in sys.path:
-        sys.path.insert(0, ai_agents_root)
+    if not ai_agents_root:
+        pytest.skip("requires an explicit absolute AI_AGENTS_ROOT")
     try:
-        return importlib.import_module("aktien_oop.store").PortfolioStore
-    except ModuleNotFoundError:
-        pytest.skip("requires the KiAgents PortfolioStore integration checkout")
+        audit_test_environment(ai_agents_root)
+        return import_portfolio_store_module(ai_agents_root).PortfolioStore
+    except EnvironmentValidationError as exc:
+        pytest.fail(str(exc), pytrace=False)
 
 
 @pytest.fixture

@@ -1,24 +1,23 @@
 from __future__ import annotations
 
-import importlib
 import os
-import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
+from scripts.validate_ai_agents_test_environment import (
+    audit_test_environment,
+    import_ai_agents_module,
+    import_portfolio_store_module,
+)
+
 ai_agents_root_value = os.environ.get("AI_AGENTS_ROOT")
 if not ai_agents_root_value:
     pytest.skip("requires AI_AGENTS_ROOT for KiAgents integration tests", allow_module_level=True)
-AI_AGENTS_ROOT = Path(ai_agents_root_value)
-if not (AI_AGENTS_ROOT / "aktien_oop" / "store.py").exists():
-    pytest.skip("AI_AGENTS_ROOT does not contain KiAgents", allow_module_level=True)
-if str(AI_AGENTS_ROOT) not in sys.path:
-    sys.path.insert(0, str(AI_AGENTS_ROOT))
-
-core_calc = importlib.import_module("aktien_oop.core_calc")
-PortfolioStore = importlib.import_module("aktien_oop.store").PortfolioStore
+AI_AGENTS_ROOT = audit_test_environment(ai_agents_root_value)
+core_calc = import_ai_agents_module(AI_AGENTS_ROOT, "aktien_oop.core_calc")
+PortfolioStore = import_portfolio_store_module(AI_AGENTS_ROOT).PortfolioStore
 CalcParams = core_calc.CalcParams
 select_topk_buffer = core_calc.select_topk_buffer
 
