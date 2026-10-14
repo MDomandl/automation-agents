@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.abc
+import importlib.machinery
 import importlib.util
 import inspect
 import os
@@ -23,6 +25,52 @@ REQUIRED_PATHS = (
 
 class EnvironmentValidationError(RuntimeError):
     """Raised when the integration-test environment is not trustworthy."""
+
+
+class _SourceOnlyLoader(importlib.machinery.SourceFileLoader):
+    """Compile the declared source file without consulting bytecode caches."""
+
+    def get_code(self, fullname: str) -> object:
+        source_path = self.get_filename(fullname)
+        source = self.get_data(source_path)
+        return self.source_to_code(source, source_path)
+
+
+class _AiAgentsSourceFinder(importlib.abc.MetaPathFinder):
+    """Resolve only aktien_oop sources below one validated root."""
+
+    def __init__(self, root: Path):
+        self._package_root = root / "aktien_oop"
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "aktien_oop":
+            relative_parts: tuple[str, ...] = ()
+        elif fullname.startswith("aktien_oop."):
+            relative_parts = tuple(fullname.split(".")[1:])
+        else:
+            return None
+
+        candidate = self._package_root.joinpath(*relative_parts)
+        package_source = candidate / "__init__.py"
+        module_source = candidate.with_suffix(".py")
+        if package_source.is_file():
+            loader = _SourceOnlyLoader(fullname, str(package_source))
+            return importlib.util.spec_from_file_location(
+                fullname,
+                package_source,
+                loader=loader,
+                submodule_search_locations=[str(candidate)],
+            )
+        if module_source.is_file():
+            loader = _SourceOnlyLoader(fullname, str(module_source))
+            return importlib.util.spec_from_file_location(
+                fullname,
+                module_source,
+                loader=loader,
+            )
+        raise ModuleNotFoundError(
+            f"{fullname} has no source file below {self._package_root}"
+        )
 
 
 def validate_python_version(version_info: Sequence[int] = sys.version_info) -> None:
@@ -126,39 +174,29 @@ def import_ai_agents_module(ai_agents_root: str | Path, module_name: str) -> Mod
     if not module_name.startswith("aktien_oop."):
         raise EnvironmentValidationError(f"unsupported AiAgents module: {module_name}")
 
-    root_text = str(root)
-    expected_package_origin = (root / "aktien_oop" / "__init__.py").resolve()
     expected_module_origin = root.joinpath(*module_name.split(".")).with_suffix(".py").resolve()
     if not expected_module_origin.is_file():
         raise EnvironmentValidationError(
             f"AI_AGENTS_ROOT does not contain required module: {expected_module_origin}"
         )
 
-    cached_package = sys.modules.get("aktien_oop")
-    if cached_package is not None:
-        _validate_import_origin(cached_package, expected_package_origin, "aktien_oop")
-    cached_module = sys.modules.get(module_name)
-    if cached_module is not None:
-        _validate_import_origin(cached_module, expected_module_origin, module_name)
-
     original_sys_path = sys.path.copy()
+    original_meta_path = sys.meta_path.copy()
     original_modules = {
         name: module
         for name, module in sys.modules.items()
         if name == "aktien_oop" or name.startswith("aktien_oop.")
     }
-    sys.path.insert(0, root_text)
+    for name, module in original_modules.items():
+        _validate_import_origin(module, _expected_source_path(root, name), name)
+    for name in original_modules:
+        sys.modules.pop(name, None)
+
+    sys.meta_path.insert(0, _AiAgentsSourceFinder(root))
     previous_dont_write_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
         importlib.invalidate_caches()
-        spec = importlib.util.find_spec(module_name)
-        origin = None if spec is None else spec.origin
-        if origin is None or Path(origin).resolve() != expected_module_origin:
-            raise EnvironmentValidationError(
-                f"{module_name} resolved to an unexpected origin before import: "
-                f"expected {expected_module_origin}, found {origin}"
-            )
         try:
             module = importlib.import_module(module_name)
         except Exception as exc:
@@ -166,6 +204,7 @@ def import_ai_agents_module(ai_agents_root: str | Path, module_name: str) -> Mod
     finally:
         sys.dont_write_bytecode = previous_dont_write_bytecode
         sys.path[:] = original_sys_path
+        sys.meta_path[:] = original_meta_path
         for name in tuple(sys.modules):
             if name == "aktien_oop" or name.startswith("aktien_oop."):
                 sys.modules.pop(name, None)
@@ -173,6 +212,22 @@ def import_ai_agents_module(ai_agents_root: str | Path, module_name: str) -> Mod
 
     _validate_import_origin(module, expected_module_origin, module_name)
     return module
+
+
+def _expected_source_path(root: Path, module_name: str) -> Path:
+    if module_name == "aktien_oop":
+        return (root / "aktien_oop" / "__init__.py").resolve()
+    relative = module_name.split(".")[1:]
+    candidate = root.joinpath("aktien_oop", *relative)
+    package_source = candidate / "__init__.py"
+    if package_source.is_file():
+        return package_source.resolve()
+    module_source = candidate.with_suffix(".py")
+    if module_source.is_file():
+        return module_source.resolve()
+    raise EnvironmentValidationError(
+        f"cached {module_name} has no matching source below {root / 'aktien_oop'}"
+    )
 
 
 def _validate_import_origin(module: ModuleType, expected: Path, name: str) -> None:

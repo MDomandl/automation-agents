@@ -1,3 +1,4 @@
+import py_compile
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -126,6 +127,24 @@ def test_import_rejects_module_loaded_from_another_root(
         import_portfolio_store_module(expected_root)
 
 
+def test_import_ignores_poisoned_same_origin_cache_and_restores_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_ai_agents_root(tmp_path / "source")
+    store_path = root / "aktien_oop" / "store.py"
+    poisoned = ModuleType("aktien_oop.store")
+    poisoned.__file__ = str(store_path)
+    poisoned.PortfolioStore = type("PoisonedPortfolioStore", (), {})
+    monkeypatch.setitem(sys.modules, "aktien_oop.store", poisoned)
+    monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
+
+    loaded = import_portfolio_store_module(root)
+
+    assert loaded is not poisoned
+    assert loaded.PortfolioStore.__name__ == "PortfolioStore"
+    assert sys.modules["aktien_oop.store"] is poisoned
+
+
 def test_import_accepts_module_from_validated_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -226,3 +245,36 @@ def test_generic_import_loads_core_calc_from_expected_origin_without_state_leaks
     assert "aktien_oop.core_calc" not in sys.modules
     assert sys.path == original_path
     assert not (root / "aktien_oop" / "__pycache__").exists()
+
+
+def test_import_ignores_existing_bytecode_and_preserves_relative_imports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_ai_agents_root(tmp_path / "source")
+    package = root / "aktien_oop"
+    helper_path = package / "helper.py"
+    helper_path.write_text("VALUE = 'poisoned-bytecode'\n", encoding="utf-8")
+    py_compile.compile(
+        str(helper_path),
+        doraise=True,
+        invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+    )
+    helper_path.write_text("VALUE = 'source-only'\n", encoding="utf-8")
+    target_path = package / "core_calc.py"
+    target_path.write_text("VALUE = 'poisoned-target-bytecode'\n", encoding="utf-8")
+    py_compile.compile(
+        str(target_path),
+        doraise=True,
+        invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH,
+    )
+    target_path.write_text(
+        "from .helper import VALUE\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delitem(sys.modules, "aktien_oop.helper", raising=False)
+    monkeypatch.delitem(sys.modules, "aktien_oop.core_calc", raising=False)
+    monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
+
+    loaded = import_ai_agents_module(root, "aktien_oop.core_calc")
+
+    assert loaded.VALUE == "source-only"
