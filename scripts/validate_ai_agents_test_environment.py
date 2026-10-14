@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
-from typing import Sequence
+from typing import Callable, Sequence
 
 EXPECTED_PYTHON = (3, 11)
 EXPECTED_AI_AGENTS_REVISION = "f5626a3b3ddb51651577ae7735af5133ed4ee712"
@@ -30,17 +30,21 @@ class EnvironmentValidationError(RuntimeError):
 class _SourceOnlyLoader(importlib.machinery.SourceFileLoader):
     """Compile the declared source file without consulting bytecode caches."""
 
+    def __init__(self, fullname: str, path: str, source: bytes):
+        super().__init__(fullname, path)
+        self._source = source
+
     def get_code(self, fullname: str) -> object:
         source_path = self.get_filename(fullname)
-        source = self.get_data(source_path)
-        return self.source_to_code(source, source_path)
+        return self.source_to_code(self._source, source_path)
 
 
 class _AiAgentsSourceFinder(importlib.abc.MetaPathFinder):
     """Resolve only aktien_oop sources below one validated root."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, source_reader: Callable[[Path], bytes]):
         self._package_root = root / "aktien_oop"
+        self._source_reader = source_reader
 
     def find_spec(self, fullname, path=None, target=None):
         if fullname == "aktien_oop":
@@ -54,7 +58,11 @@ class _AiAgentsSourceFinder(importlib.abc.MetaPathFinder):
         package_source = candidate / "__init__.py"
         module_source = candidate.with_suffix(".py")
         if package_source.is_file():
-            loader = _SourceOnlyLoader(fullname, str(package_source))
+            loader = _SourceOnlyLoader(
+                fullname,
+                str(package_source),
+                self._source_reader(package_source),
+            )
             return importlib.util.spec_from_file_location(
                 fullname,
                 package_source,
@@ -62,7 +70,11 @@ class _AiAgentsSourceFinder(importlib.abc.MetaPathFinder):
                 submodule_search_locations=[str(candidate)],
             )
         if module_source.is_file():
-            loader = _SourceOnlyLoader(fullname, str(module_source))
+            loader = _SourceOnlyLoader(
+                fullname,
+                str(module_source),
+                self._source_reader(module_source),
+            )
             return importlib.util.spec_from_file_location(
                 fullname,
                 module_source,
@@ -107,9 +119,8 @@ def validate_ai_agents_revision(
     if not (root / ".git").exists():
         raise EnvironmentValidationError("AI_AGENTS_ROOT is not a Git worktree")
 
-    environment = os.environ.copy()
-    environment["GIT_OPTIONAL_LOCKS"] = "0"
-    common = ["git", "-c", f"safe.directory={root}", "-C", str(root)]
+    environment = _git_environment()
+    common = _git_command_prefix(root)
 
     def run_git(*arguments: str) -> str:
         result = runner(
@@ -131,6 +142,30 @@ def validate_ai_agents_revision(
             f"expected {EXPECTED_AI_AGENTS_REVISION}, found {revision}"
         )
 
+    replacements = run_git("for-each-ref", "--format=%(refname)", "refs/replace")
+    if replacements:
+        raise EnvironmentValidationError("AI_AGENTS_ROOT must not contain replacement refs")
+
+    assume_unchanged = [
+        entry
+        for entry in run_git("ls-files", "-v", "-z").split("\0")
+        if entry and entry[0].islower()
+    ]
+    if assume_unchanged:
+        raise EnvironmentValidationError(
+            "AI_AGENTS_ROOT must not contain assume-unchanged index entries"
+        )
+
+    skip_worktree = [
+        entry
+        for entry in run_git("ls-files", "-t", "-z").split("\0")
+        if entry.startswith("S ")
+    ]
+    if skip_worktree:
+        raise EnvironmentValidationError(
+            "AI_AGENTS_ROOT must not contain skip-worktree index entries"
+        )
+
     dirty = run_git("status", "--porcelain=v1", "--untracked-files=all")
     if dirty:
         raise EnvironmentValidationError(
@@ -139,8 +174,16 @@ def validate_ai_agents_revision(
     return revision
 
 
-def import_portfolio_store_module(ai_agents_root: str | Path) -> ModuleType:
-    module = import_ai_agents_module(ai_agents_root, "aktien_oop.store")
+def import_portfolio_store_module(
+    ai_agents_root: str | Path,
+    *,
+    source_reader: Callable[[Path], bytes] | None = None,
+) -> ModuleType:
+    module = import_ai_agents_module(
+        ai_agents_root,
+        "aktien_oop.store",
+        source_reader=source_reader,
+    )
     if not hasattr(module, "PortfolioStore"):
         raise EnvironmentValidationError("aktien_oop.store does not define PortfolioStore")
     return module
@@ -169,7 +212,12 @@ def validate_portfolio_store_contract(module: ModuleType) -> None:
         raise EnvironmentValidationError("aktien_oop.store.PositionSnapshot is required")
 
 
-def import_ai_agents_module(ai_agents_root: str | Path, module_name: str) -> ModuleType:
+def import_ai_agents_module(
+    ai_agents_root: str | Path,
+    module_name: str,
+    *,
+    source_reader: Callable[[Path], bytes] | None = None,
+) -> ModuleType:
     root = validate_ai_agents_root(ai_agents_root)
     if not module_name.startswith("aktien_oop."):
         raise EnvironmentValidationError(f"unsupported AiAgents module: {module_name}")
@@ -192,7 +240,10 @@ def import_ai_agents_module(ai_agents_root: str | Path, module_name: str) -> Mod
     for name in original_modules:
         sys.modules.pop(name, None)
 
-    sys.meta_path.insert(0, _AiAgentsSourceFinder(root))
+    effective_source_reader = source_reader or (
+        lambda source_path: _read_pinned_source(root, source_path)
+    )
+    sys.meta_path.insert(0, _AiAgentsSourceFinder(root, effective_source_reader))
     previous_dont_write_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
@@ -228,6 +279,44 @@ def _expected_source_path(root: Path, module_name: str) -> Path:
     raise EnvironmentValidationError(
         f"cached {module_name} has no matching source below {root / 'aktien_oop'}"
     )
+
+
+def _git_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment["GIT_OPTIONAL_LOCKS"] = "0"
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    return environment
+
+
+def _git_command_prefix(root: Path) -> list[str]:
+    return ["git", "-c", f"safe.directory={root}", "-C", str(root)]
+
+
+def _read_pinned_source(root: Path, source_path: Path) -> bytes:
+    try:
+        relative_path = source_path.resolve().relative_to(root).as_posix()
+    except ValueError as exc:
+        raise EnvironmentValidationError(
+            f"source path escapes AI_AGENTS_ROOT: {source_path}"
+        ) from exc
+
+    result = subprocess.run(
+        [
+            *_git_command_prefix(root),
+            "cat-file",
+            "blob",
+            f"{EXPECTED_AI_AGENTS_REVISION}:{relative_path}",
+        ],
+        check=False,
+        capture_output=True,
+        env=_git_environment(),
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip() or "unknown Git error"
+        raise EnvironmentValidationError(
+            f"could not read pinned source for {relative_path}: {detail}"
+        )
+    return result.stdout
 
 
 def _validate_import_origin(module: ModuleType, expected: Path, name: str) -> None:

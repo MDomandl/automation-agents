@@ -6,6 +6,7 @@ from types import ModuleType
 
 import pytest
 
+from scripts import validate_ai_agents_test_environment as validator
 from scripts.validate_ai_agents_test_environment import (
     EXPECTED_AI_AGENTS_REVISION,
     EnvironmentValidationError,
@@ -33,9 +34,18 @@ def make_ai_agents_root(root: Path) -> Path:
     return root
 
 
+def read_test_source(path: Path) -> bytes:
+    return path.read_bytes()
+
+
 def git_runner(*, revision: str = EXPECTED_AI_AGENTS_REVISION, status: str = ""):
     def run(command, **kwargs):
-        stdout = revision if command[-2:] == ["rev-parse", "HEAD"] else status
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            stdout = revision
+        elif "status" in command:
+            stdout = status
+        else:
+            stdout = ""
         return CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     return run
@@ -86,13 +96,60 @@ def test_revision_uses_only_scoped_non_writing_git_queries(tmp_path: Path) -> No
     common = ["git", "-c", f"safe.directory={root.resolve()}", "-C", str(root.resolve())]
     assert [command for command, _ in calls] == [
         [*common, "rev-parse", "HEAD"],
+        [*common, "for-each-ref", "--format=%(refname)", "refs/replace"],
+        [*common, "ls-files", "-v", "-z"],
+        [*common, "ls-files", "-t", "-z"],
         [*common, "status", "--porcelain=v1", "--untracked-files=all"],
     ]
     assert all(kwargs["check"] is False for _, kwargs in calls)
     assert all(kwargs["capture_output"] is True for _, kwargs in calls)
     assert all(kwargs["text"] is True for _, kwargs in calls)
     assert all(kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0" for _, kwargs in calls)
+    assert all(kwargs["env"]["GIT_NO_REPLACE_OBJECTS"] == "1" for _, kwargs in calls)
     assert all("safe.directory" not in kwargs["env"] for _, kwargs in calls)
+
+
+def test_revision_rejects_replacement_refs(tmp_path: Path) -> None:
+    root = make_ai_agents_root(tmp_path / "source")
+    (root / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+
+    def runner(command, **kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            stdout = EXPECTED_AI_AGENTS_REVISION
+        elif "for-each-ref" in command:
+            stdout = "refs/replace/abc"
+        else:
+            stdout = ""
+        return CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    with pytest.raises(EnvironmentValidationError, match="replacement refs"):
+        validate_ai_agents_revision(root, runner=runner)
+
+
+@pytest.mark.parametrize(
+    ("flag_command", "output", "message"),
+    [
+        ("-v", "h aktien_oop/store.py\0", "assume-unchanged"),
+        ("-t", "S aktien_oop/store.py\0", "skip-worktree"),
+    ],
+)
+def test_revision_rejects_hidden_index_flags(
+    tmp_path: Path, flag_command: str, output: str, message: str
+) -> None:
+    root = make_ai_agents_root(tmp_path / "source")
+    (root / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+
+    def runner(command, **kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            stdout = EXPECTED_AI_AGENTS_REVISION
+        elif command[-3:] == ["ls-files", flag_command, "-z"]:
+            stdout = output
+        else:
+            stdout = ""
+        return CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    with pytest.raises(EnvironmentValidationError, match=message):
+        validate_ai_agents_revision(root, runner=runner)
 
 
 def test_revision_rejects_wrong_commit(tmp_path: Path) -> None:
@@ -124,7 +181,7 @@ def test_import_rejects_module_loaded_from_another_root(
     monkeypatch.setitem(sys.modules, "aktien_oop.store", wrong_module)
 
     with pytest.raises(EnvironmentValidationError, match="unexpected origin"):
-        import_portfolio_store_module(expected_root)
+        import_portfolio_store_module(expected_root, source_reader=read_test_source)
 
 
 def test_import_ignores_poisoned_same_origin_cache_and_restores_it(
@@ -138,7 +195,7 @@ def test_import_ignores_poisoned_same_origin_cache_and_restores_it(
     monkeypatch.setitem(sys.modules, "aktien_oop.store", poisoned)
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
 
-    loaded = import_portfolio_store_module(root)
+    loaded = import_portfolio_store_module(root, source_reader=read_test_source)
 
     assert loaded is not poisoned
     assert loaded.PortfolioStore.__name__ == "PortfolioStore"
@@ -153,7 +210,7 @@ def test_import_accepts_module_from_validated_root(
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
 
     try:
-        module = import_portfolio_store_module(root)
+        module = import_portfolio_store_module(root, source_reader=read_test_source)
 
         assert Path(module.__file__).resolve() == (root / "aktien_oop" / "store.py").resolve()
         assert module.PortfolioStore.__name__ == "PortfolioStore"
@@ -170,7 +227,9 @@ def test_portfolio_store_contract_accepts_snapshot_api(
     monkeypatch.delitem(sys.modules, "aktien_oop.store", raising=False)
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
 
-    validate_portfolio_store_contract(import_portfolio_store_module(root))
+    validate_portfolio_store_contract(
+        import_portfolio_store_module(root, source_reader=read_test_source)
+    )
 
 
 def test_portfolio_store_contract_rejects_missing_snapshot_parameter() -> None:
@@ -219,8 +278,16 @@ def test_repeated_imports_do_not_leak_modules_or_paths(
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
     original_path = sys.path.copy()
 
-    first = import_ai_agents_module(first_root, "aktien_oop.store")
-    second = import_ai_agents_module(second_root, "aktien_oop.store")
+    first = import_ai_agents_module(
+        first_root,
+        "aktien_oop.store",
+        source_reader=read_test_source,
+    )
+    second = import_ai_agents_module(
+        second_root,
+        "aktien_oop.store",
+        source_reader=read_test_source,
+    )
 
     assert Path(first.__file__).resolve() == first_root / "aktien_oop" / "store.py"
     assert Path(second.__file__).resolve() == second_root / "aktien_oop" / "store.py"
@@ -237,7 +304,11 @@ def test_generic_import_loads_core_calc_from_expected_origin_without_state_leaks
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
     original_path = sys.path.copy()
 
-    module = import_ai_agents_module(root, "aktien_oop.core_calc")
+    module = import_ai_agents_module(
+        root,
+        "aktien_oop.core_calc",
+        source_reader=read_test_source,
+    )
 
     assert Path(module.__file__).resolve() == root / "aktien_oop" / "core_calc.py"
     assert module.MARKER == "core"
@@ -275,6 +346,52 @@ def test_import_ignores_existing_bytecode_and_preserves_relative_imports(
     monkeypatch.delitem(sys.modules, "aktien_oop.core_calc", raising=False)
     monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
 
-    loaded = import_ai_agents_module(root, "aktien_oop.core_calc")
+    loaded = import_ai_agents_module(
+        root,
+        "aktien_oop.core_calc",
+        source_reader=read_test_source,
+    )
 
     assert loaded.VALUE == "source-only"
+
+
+def test_default_import_compiles_exact_bytes_from_pinned_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = make_ai_agents_root(tmp_path / "source")
+    (root / "aktien_oop" / "store.py").write_text(
+        "raise AssertionError('worktree source must not execute')\n",
+        encoding="utf-8",
+    )
+    pinned_sources = {
+        "aktien_oop/__init__.py": b"",
+        "aktien_oop/store.py": (
+            b"class PositionSnapshot: pass\n"
+            b"class PortfolioStore: pass\n"
+        ),
+    }
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        revision_path = command[-1]
+        relative_path = revision_path.split(":", 1)[1]
+        return CompletedProcess(command, 0, stdout=pinned_sources[relative_path], stderr=b"")
+
+    monkeypatch.setattr(validator.subprocess, "run", run)
+    monkeypatch.delitem(sys.modules, "aktien_oop.store", raising=False)
+    monkeypatch.delitem(sys.modules, "aktien_oop", raising=False)
+
+    loaded = import_portfolio_store_module(root)
+
+    assert loaded.PortfolioStore.__name__ == "PortfolioStore"
+    common = ["git", "-c", f"safe.directory={root.resolve()}", "-C", str(root.resolve())]
+    assert all(command[: len(common)] == common for command, _ in calls)
+    assert [command[-3:] for command, _ in calls] == [
+        ["cat-file", "blob", f"{EXPECTED_AI_AGENTS_REVISION}:aktien_oop/__init__.py"],
+        ["cat-file", "blob", f"{EXPECTED_AI_AGENTS_REVISION}:aktien_oop/store.py"],
+    ]
+    assert all(kwargs["check"] is False for _, kwargs in calls)
+    assert all(kwargs["capture_output"] is True for _, kwargs in calls)
+    assert all(kwargs["env"]["GIT_OPTIONAL_LOCKS"] == "0" for _, kwargs in calls)
+    assert all(kwargs["env"]["GIT_NO_REPLACE_OBJECTS"] == "1" for _, kwargs in calls)
