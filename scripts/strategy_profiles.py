@@ -156,6 +156,11 @@ def apply_strategy_profile_overlay(text: str, strategy_profile: StrategyProfile)
         "include_cash",
         _bool_text(strategy_profile.include_cash),
     )
+    # BT prefers [limits], while the runner prefers [regime] over the root value.
+    for section in ("limits", "regime"):
+        text = _replace_or_insert_section_scalar(
+            text, section, "include_cash", _bool_text(strategy_profile.include_cash)
+        )
     text = _replace_or_insert_top_level_scalar(
         text,
         "cash_yield_annual",
