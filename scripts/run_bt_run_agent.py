@@ -266,6 +266,16 @@ def build_run_manifest(
         "effective_runner_config_path": str(
             effective_runner_config_path or context.runner_config_path
         ),
+        "calculation_validation": {
+            "status": "diagnostic_not_m1_accepted",
+            "binding_eligible": False,
+            "pending_packages": ["M1.40", "M1.50", "M1.60", "M1.70", "M1.80", "M1.90"],
+            "effective_parameter_evidence": (
+                "configuration_evidence in BT/RUN decision bundles and BT params snapshot; "
+                "absent evidence is not validated"
+            ),
+            "strategy_profile_fields": "declarations, not proof of effective runtime values",
+        },
         "success": result.success,
         "warnings": list(result.warnings),
         "backtest": _step_result_to_dict(result.backtest),

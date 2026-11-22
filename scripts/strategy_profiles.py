@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +10,6 @@ from scripts.run_max_per_sector_testmatrix import replace_sector_limits
 from scripts.run_max_turnover_cap_testmatrix import replace_benchmark, replace_max_turnover_cap
 from scripts.run_sp500_testmatrix import UNIVERSES, _replace_universe_section
 from scripts.run_top_k_testmatrix import replace_top_k
-
 
 PROFILE_CONFIG_DIR = Path("configs") / "profiles"
 PROFILE_CONFIG_PATHS = (
@@ -191,10 +192,25 @@ def write_strategy_profile_overlay(
     target_path: Path,
     strategy_profile: StrategyProfile,
 ) -> None:
-    text = source_path.read_text(encoding="utf-8")
+    source_bytes = source_path.read_bytes()
+    text = source_bytes.decode("utf-8")
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    # Provenance only: neither loader uses this table for parameter resolution.
+    # Do not silently attach a second conflicting declaration to a generated copy.
+    if "m1_profile" in tomllib.loads(text):
+        raise StrategyProfileError("Source already contains m1_profile provenance")
+    metadata = strategy_profile_manifest_fields(strategy_profile)
+    metadata["base_sha256"] = hashlib.sha256(source_bytes).hexdigest()
+    if strategy_profile.source_path.is_file():
+        metadata["profile_sha256"] = hashlib.sha256(
+            strategy_profile.source_path.read_bytes()
+        ).hexdigest()
+    provenance = "\n[m1_profile]\n" + "".join(
+        f"{key} = {json.dumps(value, ensure_ascii=True)}\n"
+        for key, value in metadata.items()
+    )
     target_path.write_text(
-        apply_strategy_profile_overlay(text, strategy_profile),
+        apply_strategy_profile_overlay(text, strategy_profile) + provenance,
         encoding="utf-8",
     )
 
