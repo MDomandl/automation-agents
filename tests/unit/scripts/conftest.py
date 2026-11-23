@@ -5,6 +5,7 @@ import pytest
 from tests.unit.scripts.m1_isolation import m1_isolation as m1_isolation
 
 _M1_CONTRACT_MODULES = {
+    "test_data_quality_contract",
     "test_effective_configuration_contract",
     "test_run_bt_run_agent_manifest",
     "test_strategy_profile_cash_contract",

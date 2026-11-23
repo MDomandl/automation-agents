@@ -224,15 +224,7 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
         )
         tester = c.bt.Backtester(cfg)
         reporting_error = None
-        if exposure_case in {"empty", "all-nan"}:
-            # Current reporting bug: equity/positions/trades are written first, then
-            # corrcoef receives a nonempty portfolio and an empty benchmark array.
-            # Characterize that failure without patching NumPy or production logic.
-            with pytest.raises(ValueError, match="input array dimensions") as error:
-                tester.run()
-            reporting_error = str(error.value)
-        else:
-            tester.run()
+        tester.run()
         prefix = bt_out / f"bt_{cfg.frequency}_{cfg.top_k}x{cfg.buffer_k}"
         positions = pd.read_csv(f"{prefix}_positions.csv", comment="#")
         trades = pd.read_csv(f"{prefix}_trades.csv", comment="#").fillna("")
@@ -338,8 +330,8 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
         expected_base = result.base_returns.iloc[:3] if i == 0 else result.base_returns.iloc[3:]
         if i == 1 and sold:
             expected_base = expected_base * 0
-        pd.testing.assert_series_equal(base, expected_base, check_names=False)
-        pd.testing.assert_series_equal(actual, expected_base * factor, check_names=False)
+        pd.testing.assert_series_equal(base, expected_base, check_names=False, check_freq=False)
+        pd.testing.assert_series_equal(actual, expected_base * factor, check_names=False, check_freq=False)
         assert regime_on is enabled
         assert cash == (1.0 if i == 1 and sold else 0.0)
         all_returns.extend(actual.tolist())
@@ -367,6 +359,15 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
 
 @pytest.mark.parametrize("case", ["equal", "short", "missing-day", "empty", "all-nan"])
 def test_backtester_exposure_data_edges_reach_equity(case, synthetic_run):
+    if case != "equal":
+        # M1.40: Unknown legacy input is no longer a negative signal or a
+        # silently disabled overlay. Valid overlay arithmetic stays unchanged.
+        error = importlib.import_module("aktien_oop.core_calc").DataQualityError
+        codes = {"short":"INSUFFICIENT_HISTORY", "missing-day":"MISSING_AS_OF",
+                 "empty":"MISSING_LEGACY_EXPOSURE", "all-nan":"NONFINITE_PRICE"}
+        with pytest.raises(error, match=codes[case]):
+            synthetic_run("balanced_v1", exposure_case=case)
+        return
     result = synthetic_run("balanced_v1", exposure_case=case)
     assert bool(result.reporting_error) is (case in {"empty", "all-nan"})
     assert [d["action"] for d in result.decisions] == ["PROCEED", "PROCEED"]
@@ -377,7 +378,7 @@ def test_backtester_exposure_data_edges_reach_equity(case, synthetic_run):
         factor.iloc[-1] = 0.5
     expected = result.base_returns * factor
     actual = pd.concat([call[1] for call in result.exposure_calls])
-    pd.testing.assert_series_equal(actual, expected, check_names=False)
+    pd.testing.assert_series_equal(actual, expected, check_names=False, check_freq=False)
     assert [call[2] for call in result.exposure_calls] == [case != "empty"] * 2
     assert result.bundle["new_weights"] == {"AAA": 0.5, "BBB": 0.5}
     assert "CASH" not in set(result.positions["ticker"])
@@ -391,7 +392,7 @@ def test_daily_exposure_also_runs_when_rebalance_is_skipped(synthetic_run):
     assert len(result.trades) == 1
     assert len(result.exposure_calls) == 2
     actual = pd.concat([call[1] for call in result.exposure_calls])
-    pd.testing.assert_series_equal(actual, result.base_returns * 0.5, check_names=False)
+    pd.testing.assert_series_equal(actual, result.base_returns * 0.5, check_names=False, check_freq=False)
     assert result.equity["equity"].iloc[-1] == pytest.approx(
         (1 - 0.0003) * (1 + result.base_returns * 0.5).prod()
     )
@@ -403,17 +404,18 @@ def test_daily_exposure_also_runs_when_rebalance_is_skipped(synthetic_run):
         ("above", True, 1.0),
         ("equal", False, 1.0),
         ("below", False, 0.5),
-        ("empty", True, None),
-        ("short", True, 0.5),
-        ("all-nan", True, 0.5),
-        ("missing-day", True, 0.5),
-        ("missing-close", True, None),
+        ("empty", None, None),
+        ("short", None, None),
+        ("all-nan", None, None),
+        ("missing-day", None, None),
+        ("missing-close", None, None),
     ],
 )
 def test_sma_boundary_contract(case, gate_ok, exposure_factor, regime_contract, monkeypatch):
     c = regime_contract
     _, cfg, _, _ = c.configs("balanced_v1")
-    dates = pd.bdate_range("2024-01-01", periods=201)
+    import exchange_calendars as xcals
+    dates = xcals.get_calendar("XNYS", start="2023-12-20", end="2025-01-01").sessions_in_range("2024-01-01", "2024-12-31")[:201]
     as_of = dates[-1]
     close = pd.Series(100.0, index=dates[-200:])
     if case in {"above", "missing-day"}:
@@ -438,24 +440,19 @@ def test_sma_boundary_contract(case, gate_ok, exposure_factor, regime_contract, 
     client = c.data.DataClient(cfg)
     assert client.sp500_above_200dma(str(as_of.date()), 200, "800d") is gate_ok
     assert client.regime_decision(cfg, str(as_of.date()))["action"] == (
-        "PROCEED" if gate_ok else "HOLD"
+        "UNCONFIRMED" if gate_ok is None else "PROCEED" if gate_ok else "HOLD"
     )
     if exposure_factor is not None:
         series = close.dropna()  # same preparation as Backtester.run
         base = pd.Series([0.02, -0.02], index=[as_of, as_of + pd.offsets.BDay()])
-        actual = c.bt.apply_exposures_and_cash(
-            base,
-            True,
-            series,
-            series.rolling(200).mean(),
-            cfg.regime_exposure_low,
-            False,
-            None,
-            0.0,
-            0.0,
-        )
-        # The next date is absent: unlike the trading gate, exposure does not carry forward.
-        assert actual.tolist() == pytest.approx([0.02 * exposure_factor, -0.01])
+        error = importlib.import_module("aktien_oop.core_calc").DataQualityError
+        with pytest.raises(error, match="UNKNOWN_LEGACY_EXPOSURE"):
+            c.bt.apply_exposures_and_cash(base, True, series, series.rolling(200).mean(),
+                cfg.regime_exposure_low, False, None, 0.0, 0.0)
+        # A genuinely available observation still has identical arithmetic.
+        actual = c.bt.apply_exposures_and_cash(base.iloc[:1], True, series,
+            series.rolling(200).mean(), cfg.regime_exposure_low, False, None, 0.0, 0.0)
+        assert actual.tolist() == pytest.approx([0.02 * exposure_factor])
 
 
 @pytest.mark.parametrize("cash_weight", [0.4, 1.0])

@@ -397,7 +397,7 @@ def test_runner_period_cli_is_overridden_by_runtime_section(real_loaders):
     assert entry["loaded"] == "400d" and entry["runtime"] == "800d"
 
 
-def test_runner_actual_asof_after_existing_price_fallback(
+def test_runner_stale_requested_asof_is_unconfirmed(
     synthetic_run, regime_contract, monkeypatch
 ):
     import pandas as pd
@@ -409,15 +409,10 @@ def test_runner_actual_asof_after_existing_price_fallback(
         return original_run(runner)
 
     monkeypatch.setattr(regime_contract.runner.Runner, "run", requested_after_data)
-    result = synthetic_run("balanced_v1")
-    actual = str(result.dates[-1].date())
-    assert actual < "2025-04-01"
-    assert result.bundle["as_of"] == actual
-    assert pd.Timestamp(
-        result.bundle["configuration_evidence"]["runtime"]["as_of"]
-    ) == pd.Timestamp(actual)
-    runtime_calls = [c for c in result.core_calls if c[0] == "RUN"]
-    assert len(runtime_calls) == 1 and runtime_calls[0][1] == pd.Timestamp(actual)
+    # M1.40 supersedes the former permissive fallback characterization.
+    core = importlib.import_module("aktien_oop.core_calc")
+    with pytest.raises(core.DataQualityError, match="MISSING_AS_OF"):
+        synthetic_run("balanced_v1")
 
 
 def test_toml_dates_survive_real_runner_bundle(real_loaders, monkeypatch, tmp_path):
