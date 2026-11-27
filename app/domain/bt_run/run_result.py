@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 
@@ -29,3 +30,6 @@ class RunResult:
     runner: StepResult
     compare: CompareResult
     warnings: tuple[str, ...] = ()
+    runner_signal_as_of: str | None = None
+    runner_execution_date: str | None = None
+    runner_decision_paths: tuple[Path, ...] | None = None

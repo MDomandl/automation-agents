@@ -4,6 +4,7 @@ import argparse
 import calendar
 import csv
 import json
+import math
 import re
 import shutil
 import sys
@@ -17,7 +18,7 @@ from app.bootstrap.bt_run_container import build_bt_run_agent
 from app.domain.bt_run.run_context import CompareMode, RunContext, RunnerMode, RunProfile
 from app.domain.bt_run.run_result import RunResult, StepResult
 from app.tools.process.run_backtest_tool import RunBacktestToolInput
-from app.tools.process.run_runner_tool import RunRunnerToolInput
+from app.tools.process.run_runner_tool import RunRunnerToolInput, runner_option
 from scripts.strategy_profiles import (
     StrategyProfile,
     StrategyProfileError,
@@ -484,8 +485,8 @@ def build_paper_run_artifact(
     portfolio_file: Path | None = None,
     portfolio_name: str | None = None,
 ) -> dict[str, object]:
-    latest_bundle = _load_latest_decision_bundle(context.decisions_dir, "RUN")
-    target_positions = _extract_weights(latest_bundle["payload"]) if latest_bundle else {}
+    payload, bundle_path, status = _paper_decision(context, result)
+    target_positions = _extract_weights(payload) if status == "confirmed" else None
     if portfolio_file is not None:
         previous_positions = load_portfolio_positions_csv(portfolio_file)
         portfolio_checks = _build_portfolio_checks(previous_positions)
@@ -496,7 +497,7 @@ def build_paper_run_artifact(
         portfolio_file_resolved = str(portfolio_file.resolve(strict=False))
     else:
         previous_positions = (
-            _extract_previous_weights(latest_bundle["payload"]) if latest_bundle else {}
+            None if payload.get("first_run_no_prev_state") is True else _extract_previous_weights(payload)
         )
         portfolio_source = "runner_previous_state"
         portfolio_file_path = None
@@ -504,7 +505,13 @@ def build_paper_run_artifact(
         portfolio_file_display = None
         portfolio_file_resolved = None
         portfolio_checks = None
-    proposals = _build_weight_change_proposals(previous_positions, target_positions)
+    can_compare = target_positions is not None and (
+        previous_positions is not None or payload.get("first_run_no_prev_state") is not True
+    )
+    proposals = (
+        _build_weight_change_proposals(previous_positions or {}, target_positions)
+        if can_compare else {"buy": [], "sell": [], "hold": []}
+    )
     proposal_delta_basis = (
         "local portfolio file"
         if portfolio_source == "portfolio_file"
@@ -552,7 +559,14 @@ def build_paper_run_artifact(
         "strategy_profile_name": strategy_profile.name if strategy_profile else None,
         "strategy_profile_label": strategy_profile.label if strategy_profile else None,
         "universe": strategy_profile.universe if strategy_profile else None,
-        "decision_bundle": latest_bundle["path"] if latest_bundle else None,
+        "decision_bundle": bundle_path,
+        "decision_status": status,
+        "decision_confirmed": status == "confirmed",
+        "signal_as_of": payload.get("signal_as_of") or payload.get("as_of") or result.runner_signal_as_of,
+        "decision_time": payload.get("decision_time"),
+        "execution_date": payload.get("execution_date") or result.runner_execution_date,
+        "execution_time": payload.get("execution_time"),
+        "execution_status": payload.get("execution_status"),
         "portfolio_name": portfolio_name,
         "portfolio_source": portfolio_source,
         "portfolio_file": portfolio_file_path,
@@ -562,9 +576,10 @@ def build_paper_run_artifact(
         "portfolio_checks": portfolio_checks,
         "proposal_delta_tolerance": PROPOSAL_DELTA_TOLERANCE,
         "proposal_delta_basis": proposal_delta_basis,
-        "as_of": latest_bundle["payload"].get("as_of") if latest_bundle else None,
+        "as_of": payload.get("as_of") or payload.get("signal_as_of") or result.runner_signal_as_of,
+        "previous_positions": previous_positions,
         "target_positions": target_positions,
-        "cash_weight": _cash_weight(target_positions),
+        "cash_weight": _cash_weight(target_positions) if target_positions is not None else None,
         "buy_proposals": proposals["buy"],
         "sell_proposals": proposals["sell"],
         "hold_proposals": proposals["hold"],
@@ -656,6 +671,9 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 f"strategy_profile_label: {artifact['strategy_profile_label']}",
                 f"universe: {artifact['universe']}",
                 f"as_of: {artifact['as_of']}",
+                f"decision_status: {artifact.get('decision_status')}",
+                f"decision_confirmed: {artifact.get('decision_confirmed')}",
+                f"execution_date: {artifact.get('execution_date')}",
                 f"approval_status: {artifact['approval_status']}",
                 "orders_executed: false",
                 "broker_connected: false",
@@ -679,7 +697,9 @@ def write_paper_run_report(context: RunContext, artifact: dict[str, object]) -> 
                 f"sell_proposals_count: {sell_count}",
                 "",
                 "Target Positions",
-                target_lines or "- None",
+                target_lines or (
+                    "- Awaiting a confirmed target" if target_positions is None else "- None"
+                ),
                 "",
                 "Buy Proposals",
                 buy_lines or "- None",
@@ -778,58 +798,188 @@ def _format_weight(value: int | float) -> str:
     return f"{float(value):.6f}"
 
 
-def _load_latest_decision_bundle(decisions_dir: Path, kind: str) -> dict[str, object] | None:
-    if not decisions_dir.exists():
-        return None
+def _paper_decision(context: RunContext, result: RunResult) -> tuple[dict, str | None, str]:
+    if not result.runner.success:
+        return {}, None, "runner_failed" if result.runner.command else "runner_not_executed"
 
-    candidates: list[tuple[str, str, Path, dict]] = []
-    for path in decisions_dir.glob(f"{kind}_*.json"):
+    signal = result.runner_signal_as_of
+    execution_date = result.runner_execution_date
+    if result.runner_decision_paths is None and signal is None:
+        # Callers constructing RunResult themselves do not have the wrapper's run evidence.
+        backtests = [
+            _read_decision_json(path) for path in context.decisions_dir.glob("BT_*.json")
+        ]
+        timed = [item for item in backtests if _iso_day(item.get("signal_as_of"))]
+        if timed:
+            latest = max(timed, key=lambda item: item["signal_as_of"])
+            signal, execution_date = latest["signal_as_of"], latest.get("execution_date")
+
+    paths = result.runner_decision_paths
+    if paths is None:
+        paths = tuple(context.decisions_dir.glob("RUN_*.json"))
+    candidates = []
+    for path in paths:
+        payload = _read_decision_json(path)
+        as_of = _iso_day(payload.get("as_of"))
+        # Keep malformed files for the expected date so they are reported as invalid.
+        if signal is None or signal == as_of or path.stem.endswith(f"_{signal}"):
+            candidates.append((as_of or "", path.name, path, payload))
+    if candidates:
+        _, _, path, payload = max(candidates)
+        status = _paper_bundle_status(payload, signal, execution_date)
+        if status == "confirmed":
+            return payload, str(path), status
+        if status != "unconfirmed_bundle":
+            return {}, None, status
+    else:
+        status = "missing_bundle"
+
+    pending = _read_runner_pending(context, result, signal, execution_date)
+    return (pending, None, "pending") if pending else ({}, None, status)
+
+
+def _paper_bundle_status(payload: dict, signal: str | None, execution_date: str | None) -> str:
+    as_of = _iso_day(payload.get("as_of"))
+    if (
+        as_of is None or (signal and as_of != signal) or payload.get("kind", "RUN") != "RUN"
+        or _extract_weights(payload) is None
+    ):
+        return "invalid_bundle"
+
+    evidence = payload.get("configuration_evidence")
+    runtime = evidence.get("runtime") if isinstance(evidence, dict) else None
+    runtime = runtime if isinstance(runtime, dict) else {}
+    if runtime.get("data_quality_status") == "invalid":
+        return "invalid_bundle"
+    if any("decision_confirmed" in source and source["decision_confirmed"] is not True
+           for source in (payload, runtime)):
+        return "unconfirmed_bundle"
+    timing = payload.get("execution_status")
+    has_timing = any(field in payload for field in (
+        "signal_as_of", "decision_time", "execution_date", "execution_time", "execution_status",
+    ))
+    if execution_date is not None or has_timing:
+        if timing != "validated_model_close" or runtime.get("decision_confirmed") is not True:
+            return "unconfirmed_bundle"
+        executed = _iso_day(payload.get("execution_date"))
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        as_of = payload.get("as_of")
-        candidates.append((str(as_of or ""), path.name, path, payload))
+            decision, close, observed = (
+                datetime.fromisoformat(value) for value in (
+                    payload.get("decision_time"), payload.get("execution_time"),
+                    runtime.get("execution_observed_through"),
+                )
+            )
+            valid_times = (
+                all(value.utcoffset() is not None for value in (decision, close, observed))
+                and decision < close <= observed
+            )
+        except (ValueError, TypeError):
+            valid_times = False
+        if (
+            payload.get("signal_as_of") != as_of
+            or executed is None or executed <= as_of
+            or (execution_date and execution_date != executed)
+            or runtime.get("signal_as_of") != as_of
+            or runtime.get("execution_date") != executed
+            or not valid_times
+            or payload.get("decision_time") != runtime.get("decision_time")
+            or payload.get("execution_time") != runtime.get("execution_time")
+            or runtime.get("data_quality_status") != "valid"
+        ):
+            return "invalid_bundle"
+    if any(field in payload for field in ("old_weights", "previous_weights", "current_weights")):
+        if _extract_previous_weights(payload) is None:
+            return "invalid_bundle"
+    return "confirmed"
 
-    if not candidates:
+
+def _read_runner_pending(
+    context: RunContext, result: RunResult, signal: str | None, execution_date: str | None,
+) -> dict:
+    signal = _iso_day(signal or runner_option(result.runner.command, "--as-of"))
+    if signal is None:
+        return {}
+    config_option = runner_option(result.runner.command, "--config")
+    config = Path(config_option) if config_option else context.runner_config_path
+    cwd = Path(result.runner.cwd) if result.runner.cwd else context.ai_agents_dir
+    if not config.is_absolute():
+        config = cwd / config
+    save_dir = runner_option(result.runner.command, "--save-dir")
+    if save_dir is None and config.is_file():
+        try:
+            with config.open("rb") as handle:
+                save_dir = tomllib.load(handle).get("save_dir")
+        except (OSError, ValueError):
+            return {}
+    folder = cwd / save_dir if isinstance(save_dir, str) else context.aktien_oop_dir
+    pending = _read_decision_json(folder / f"RUN_timing_pending_{signal}.json")
+    scheduled = _iso_day(pending.get("execution_date"))
+    if (
+        pending.get("signal_as_of") == signal
+        and pending.get("execution_status") == "pending"
+        and pending.get("decision_confirmed") is False
+        and scheduled is not None and scheduled > signal
+        and (execution_date is None or scheduled == execution_date)
+    ):
+        return pending
+    return {}
+
+
+def _read_decision_json(path: Path) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _iso_day(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return value if date.fromisoformat(value).isoformat() == value else None
+    except ValueError:
         return None
 
-    _, _, path, payload = sorted(candidates)[-1]
-    return {"path": str(path), "payload": payload}
 
-
-def _extract_weights(payload: dict) -> dict[str, float]:
+def _extract_weights(payload: dict) -> dict[str, float] | None:
     for field in ("new_weights", "weights", "positions"):
-        value = payload.get(field)
-        normalized = _normalize_weights(value)
-        if normalized is not None:
-            return normalized
-    return {}
+        if field in payload:
+            return _normalize_weights(payload[field])
+    return None
 
 
-def _extract_previous_weights(payload: dict) -> dict[str, float]:
+def _extract_previous_weights(payload: dict) -> dict[str, float] | None:
     for field in ("old_weights", "previous_weights", "current_weights"):
-        value = payload.get(field)
-        normalized = _normalize_weights(value)
-        if normalized is not None:
-            return normalized
-    return {}
+        if field in payload:
+            return _normalize_weights(payload[field])
+    return None
 
 
 def _normalize_weights(value: object) -> dict[str, float] | None:
     if isinstance(value, dict):
-        return {str(ticker): float(weight) for ticker, weight in value.items()}
-    if isinstance(value, list):
-        weights: dict[str, float] = {}
-        for item in value:
-            if not isinstance(item, dict):
-                continue
-            ticker = item.get("ticker")
-            weight = item.get("weight", item.get("allocation_pct"))
-            if ticker is not None and weight is not None:
-                weights[str(ticker)] = float(weight)
-        return weights
-    return None
+        items = value.items()
+    elif isinstance(value, list):
+        if any(not isinstance(item, dict) for item in value):
+            return None
+        items = [
+            (item.get("ticker"), item.get("weight", item.get("allocation_pct")))
+            for item in value
+        ]
+    else:
+        return None
+    weights = {}
+    for ticker, weight in items:
+        if not isinstance(ticker, str) or not ticker.strip() or ticker in weights or isinstance(weight, bool):
+            return None
+        try:
+            numeric = float(weight)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(numeric) or numeric < 0:
+            return None
+        weights[ticker] = numeric
+    return weights
 
 
 def load_portfolio_positions_csv(path: Path) -> dict[str, float]:
@@ -939,8 +1089,8 @@ def main() -> None:
             raise SystemExit(f"error: {exc}") from exc
     context = build_run_context(profile, runner_mode)
     profile_behavior = resolve_profile_behavior(profile)
+    context.decisions_dir.mkdir(parents=True, exist_ok=False)
     context.output_dir.mkdir(parents=True, exist_ok=True)
-    context.decisions_dir.mkdir(parents=True, exist_ok=True)
     effective_backtest_config_path = context.backtest_config_path
     effective_runner_config_path = context.runner_config_path
     if strategy_profile is not None:
@@ -1014,7 +1164,7 @@ def main() -> None:
                 ignore_cash=context.ignore_cash,
             ),
             compare_mode=context.compare_mode,
-            seed_runner_previous_from_backtest=True,
+            seed_runner_previous_from_backtest=context.runner_mode == RunnerMode.ANALYSIS,
             compare_point_count=profile_behavior.compare_point_count,
             require_bt_bundles_for_compare=explicit_time_window,
             explicit_time_window_start=args.start,

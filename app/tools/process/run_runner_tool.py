@@ -13,6 +13,7 @@ class RunRunnerToolInput:
     cwd: str | Path | None = None
     timeout_seconds: int | None = None
     as_of_override: str | None = None
+    execution_as_of_override: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,24 @@ class RunRunnerTool:
 
     @staticmethod
     def _build_command(tool_input: RunRunnerToolInput) -> tuple[str, ...]:
-        if tool_input.as_of_override is None or "--as-of" in tool_input.command:
-            return tool_input.command
+        command = tool_input.command
+        explicit_signal = runner_option(command, "--as-of")
+        if tool_input.as_of_override is not None and explicit_signal is None:
+            command += ("--as-of", tool_input.as_of_override)
+        if (
+            tool_input.execution_as_of_override is not None
+            and runner_option(command, "--execution-as-of") is None
+            and (explicit_signal is None or explicit_signal == tool_input.as_of_override)
+        ):
+            command += ("--execution-as-of", tool_input.execution_as_of_override)
+        return command
 
-        return tool_input.command + ("--as-of", tool_input.as_of_override)
+
+def runner_option(command: tuple[str, ...], option: str) -> str | None:
+    for index in range(len(command) - 1, -1, -1):
+        arg = command[index]
+        if arg == option:
+            return command[index + 1] if index + 1 < len(command) else ""
+        if arg.startswith(f"{option}="):
+            return arg.split("=", 1)[1]
+    return None

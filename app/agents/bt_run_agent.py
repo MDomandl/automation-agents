@@ -4,6 +4,7 @@ import hashlib
 import json
 import tomllib
 from dataclasses import dataclass, replace
+from datetime import date, datetime
 from pathlib import Path
 
 from app.application.bt_run.previous_state import (
@@ -24,7 +25,7 @@ from app.tools.process.run_backtest_tool import (
     RunBacktestTool,
     RunBacktestToolInput,
 )
-from app.tools.process.run_runner_tool import RunRunnerTool, RunRunnerToolInput
+from app.tools.process.run_runner_tool import RunRunnerTool, RunRunnerToolInput, runner_option
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +102,7 @@ class BtRunAgent:
         as_of_resolution = self._resolve_effective_as_of(agent_input)
         config_result, warnings = self._collect_config_warnings(agent_input, as_of_resolution)
 
+        bt_before = self._bundle_versions("BT")
         backtest_result = self._run_backtest_tool.execute(agent_input.backtest_input)
 
         if not backtest_result.success:
@@ -118,9 +120,14 @@ class BtRunAgent:
                 warnings=warnings,
             )
 
+        bt_bundles = self._load_bt_bundles_from_current_run()
+        current_bt_paths = {
+            path for path, version in self._bundle_versions("BT").items()
+            if bt_before.get(path) != version
+        }
+        current_bt_bundles = self._load_bt_bundles_from_current_run(paths=current_bt_paths)
         if agent_input.require_bt_bundles_for_compare:
-            bt_as_ofs = self._load_phase_bt_as_ofs_from_current_run(agent_input)
-            if not bt_as_ofs:
+            if not self._phase_bt_as_ofs(agent_input, bt_bundles):
                 message = self._missing_bt_bundles_message(agent_input)
                 return self._failed_run_result(
                     backtest=self._step_result(backtest_result.process_result, success=True),
@@ -132,7 +139,7 @@ class BtRunAgent:
                     warnings=warnings + (f"[ERROR] {message}",),
                 )
 
-        runner_as_of_points = self._resolve_runner_as_of_points(agent_input, as_of_resolution)
+        runner_as_of_points = self._resolve_runner_as_of_points(agent_input, as_of_resolution, bt_bundles)
         if not runner_as_of_points:
             return self._failed_run_result(
                 backtest=self._step_result(backtest_result.process_result, success=True),
@@ -147,24 +154,39 @@ class BtRunAgent:
         )
 
         runner_process_results = []
-        for index, runner_as_of in enumerate(runner_as_of_points):
+        configured_horizon = self._has_configured_execution_horizon(agent_input.runner_input)
+        for runner_as_of in runner_as_of_points:
             point_resolution = replace(as_of_resolution, runner_as_of_override=runner_as_of)
+            signal = point_resolution.effective_runner_as_of
+            bt_bundle = current_bt_bundles.get(signal, {})
+            execution_as_of = self._bt_execution_horizon(bt_bundle)
+            expected_signal = signal if signal in bt_bundles else None
+            execution_date = bt_bundle.get("execution_date") if execution_as_of else None
             if agent_input.seed_runner_previous_from_backtest:
                 seed_result = self._seed_runner_previous_from_backtest(
                     agent_input, point_resolution
                 )
                 warnings = warnings + (seed_result.message,)
 
+            before = self._bundle_versions("RUN")
             runner_result = self._run_runner_tool.execute(
                 replace(
                     agent_input.runner_input,
                     as_of_override=runner_as_of,
+                    execution_as_of_override=(
+                        agent_input.runner_input.execution_as_of_override
+                        or (execution_as_of if not configured_horizon else None)
+                    ),
                 )
+            )
+            current_paths = tuple(
+                path for path, version in self._bundle_versions("RUN").items()
+                if before.get(path) != version
             )
             runner_process_results.append(runner_result.process_result)
 
             if not runner_result.success:
-                return self._failed_run_result(
+                failure = self._failed_run_result(
                     backtest=self._step_result(backtest_result.process_result, success=True),
                     runner=self._step_result(
                         runner_result.process_result,
@@ -174,8 +196,22 @@ class BtRunAgent:
                     compare_message="Compare not executed because runner failed",
                     warnings=warnings,
                 )
+                return replace(
+                    failure, runner_signal_as_of=expected_signal, runner_execution_date=execution_date,
+                    runner_decision_paths=current_paths,
+                )
 
-        compare_result = self._execute_compare(agent_input)
+        if execution_date is not None and not current_paths:
+            compare_result = CompareResult(
+                success=False, message="No new RUN decision bundle for the selected signal",
+            )
+        else:
+            try:
+                compare_result = self._execute_compare(agent_input)
+            except (AttributeError, KeyError, OSError, TypeError, ValueError, OverflowError) as exc:
+                compare_result = CompareResult(
+                    success=False, message=f"Compare failed while reading decision bundles ({type(exc).__name__})",
+                )
         runner_step = self._combined_runner_step_result(runner_process_results)
 
         return RunResult(
@@ -184,6 +220,9 @@ class BtRunAgent:
             runner=runner_step,
             compare=compare_result,
             warnings=warnings,
+            runner_signal_as_of=expected_signal,
+            runner_execution_date=execution_date,
+            runner_decision_paths=current_paths,
         )
 
     def _collect_config_warnings(
@@ -246,9 +285,16 @@ class BtRunAgent:
         self,
         agent_input: BtRunAgentInput,
         as_of_resolution: AsOfResolution,
+        bt_bundles: dict[str, dict] | None = None,
     ) -> tuple[str | None, ...]:
+        explicit_signal = runner_option(agent_input.runner_input.command, "--as-of")
+        if explicit_signal is not None:
+            return (explicit_signal,)
+
         count = max(int(agent_input.compare_point_count or 1), 1)
-        bt_as_ofs = self._load_phase_bt_as_ofs_from_current_run(agent_input)
+        if bt_bundles is None:
+            bt_bundles = self._load_bt_bundles_from_current_run()
+        bt_as_ofs = self._phase_bt_as_ofs(agent_input, bt_bundles)
 
         if bt_as_ofs:
             return tuple(bt_as_ofs[-count:])
@@ -261,43 +307,78 @@ class BtRunAgent:
             return (as_of_resolution.backtest_as_of,)
         return (None,)
 
-    def _load_phase_bt_as_ofs_from_current_run(self, agent_input: BtRunAgentInput) -> list[str]:
-        return self._filter_phase_as_ofs(
-            self._load_bt_as_ofs_from_current_run(),
-            start=agent_input.explicit_time_window_start,
-            end=agent_input.explicit_time_window_end,
-        )
-
-    def _load_bt_as_ofs_from_current_run(self) -> list[str]:
-        if self._decisions_dir is None or not self._decisions_dir.exists():
-            return []
-
-        as_ofs: set[str] = set()
-        for path in self._decisions_dir.glob("BT_*.json"):
-            try:
-                with path.open("r", encoding="utf-8") as file_obj:
-                    payload = json.load(file_obj)
-            except (OSError, json.JSONDecodeError):
-                continue
-
-            as_of = payload.get("as_of")
-            if isinstance(as_of, str) and as_of.strip():
-                as_ofs.add(as_of.strip())
-
-        return sorted(as_ofs)
-
     @staticmethod
-    def _filter_phase_as_ofs(
-        as_ofs: list[str],
-        *,
-        start: str | None,
-        end: str | None,
-    ) -> list[str]:
+    def _phase_bt_as_ofs(agent_input: BtRunAgentInput, bundles: dict[str, dict]) -> list[str]:
+        start, end = agent_input.explicit_time_window_start, agent_input.explicit_time_window_end
         return [
-            as_of
-            for as_of in as_ofs
+            as_of for as_of in sorted(bundles)
             if (start is None or as_of >= start) and (end is None or as_of <= end)
         ]
+
+    def _load_bt_bundles_from_current_run(self, *, paths: set[Path] | None = None) -> dict[str, dict]:
+        if self._decisions_dir is None:
+            return {}
+
+        bundles = {}
+        if paths is None:
+            paths = set(self._decisions_dir.glob("BT_*.json"))
+        for path in sorted(paths):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                as_of = payload["as_of"]
+                if date.fromisoformat(as_of).isoformat() == as_of:
+                    bundles[as_of] = payload
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        return bundles
+
+    @classmethod
+    def _has_configured_execution_horizon(cls, runner_input: RunRunnerToolInput) -> bool:
+        path = runner_input.config_path
+        if path is None or not path.is_file():
+            return False
+        payload = cls._load_toml(path)
+        return bool(payload.get("core", {}).get("execution_as_of") or payload.get("execution_as_of"))
+
+    @staticmethod
+    def _bt_execution_horizon(bundle: dict) -> str | None:
+        if bundle.get("execution_status") != "validated_model_close":
+            return None
+        evidence = bundle.get("configuration_evidence")
+        runtime = evidence.get("runtime") if isinstance(evidence, dict) else None
+        if not isinstance(runtime, dict) or runtime.get("decision_confirmed") is not True:
+            return None
+        try:
+            signal = bundle["signal_as_of"]
+            execution_date = bundle["execution_date"]
+            decision = datetime.fromisoformat(bundle["decision_time"])
+            close = datetime.fromisoformat(bundle["execution_time"])
+            observed = datetime.fromisoformat(runtime["execution_observed_through"])
+            if (
+                signal == bundle["as_of"] == runtime["signal_as_of"]
+                and date.fromisoformat(execution_date) > date.fromisoformat(signal)
+                and execution_date == runtime["execution_date"]
+                and bundle["decision_time"] == runtime["decision_time"]
+                and bundle["execution_time"] == runtime["execution_time"]
+                and all(value.utcoffset() is not None for value in (decision, close, observed))
+                and decision < close <= observed
+            ):
+                return runtime["execution_observed_through"]
+        except (ValueError, KeyError, TypeError):
+            pass
+        return None
+
+    def _bundle_versions(self, kind: str) -> dict[Path, tuple[int, int, int]]:
+        if self._decisions_dir is None:
+            return {}
+        versions = {}
+        for path in self._decisions_dir.glob(f"{kind}_*.json"):
+            try:
+                stat = path.stat()
+                versions[path] = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+            except FileNotFoundError:
+                continue
+        return versions
 
     @staticmethod
     def _missing_bt_bundles_message(agent_input: BtRunAgentInput) -> str:
