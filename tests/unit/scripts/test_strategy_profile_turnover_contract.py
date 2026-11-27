@@ -193,7 +193,8 @@ def test_runner_run_computes_turnover_in_decision_bundle(
             tickers_file=tickers,
             sector_meta_file=meta,
             universe=replace(base_cfg.universe, tickers_file=tickers, meta_file=meta),
-            as_of=dates[-1].strftime("%Y-%m-%d"),
+            as_of=dates[-2].strftime("%Y-%m-%d"),
+            execution_as_of=dates[-1].strftime("%Y-%m-%d"),
             save_dir=out,
             decisions_dir=out / "decisions",
             force_rebalance=True,
@@ -201,7 +202,7 @@ def test_runner_run_computes_turnover_in_decision_bundle(
         )
         runner = runner_module.Runner(cfg)
         runner.store.save_positions(pd.DataFrame([
-            {"as_of": dates[-2], "ticker": "AAA", "allocation_pct": 100.0}
+            {"as_of": dates[-3], "ticker": "AAA", "allocation_pct": 100.0}
         ]))
         monkeypatch.setattr(runner.data, "load_prices", prices)
         monkeypatch.setattr(

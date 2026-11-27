@@ -73,7 +73,7 @@ def quality(regime_contract, tmp_path, monkeypatch):
         else:
             cfg = replace(run_base, tickers_file=tickers, sector_meta_file=meta,
                 universe=replace(run_base.universe,tickers_file=tickers,meta_file=meta),
-                as_of=str(dates[-3].date()), save_dir=work, decisions_dir=work / "decisions",
+                as_of=str(dates[-3].date()), execution_as_of=str(dates[-1].date()), save_dir=work, decisions_dir=work / "decisions",
                 force_rebalance=True, dump_decision_bundles=True)
             instance = c.runner.Runner(cfg)
             monkeypatch.setattr(instance.data, "load_prices", download)
@@ -232,11 +232,15 @@ def test_non_numeric_price_types_fail_at_quality_boundary(quality,value):
         q.calculate(frame,previous={"AAA":1.})
 
 
-def test_future_gate_data_and_nonfinite_computed_sma_are_unknown(quality,monkeypatch):
+def test_future_gate_data_are_ignored_and_nonfinite_computed_sma_is_unknown(quality,monkeypatch):
     q=quality
-    result=q.client.regime_decision(q.cfg,str(q.dates[-2].date()))
-    assert result["action"]=="UNCONFIRMED"
-    assert result["diagnostics"][0]["code"]=="FUTURE_REGIME_DATA"
+    cutoff = str(q.dates[-2].date())
+    q.gate.iloc[-1, 0] = 1.0
+    result=q.client.regime_decision(q.cfg,cutoff)
+    assert result["action"]=="PROCEED"
+    with monkeypatch.context() as scoped:
+        scoped.setattr(q.client._market_cache, "get_or_load_frame", lambda *a: q.gate.iloc[:-1].copy())
+        assert q.client.regime_decision(q.cfg,cutoff) == result
     # Isolate the calculated-indicator boundary even with finite input prices.
     rolling=pd.core.window.rolling.Rolling
     monkeypatch.setattr(rolling,"mean",lambda self,*a,**kw:pd.Series(np.inf,index=self.obj.index))
@@ -259,6 +263,7 @@ def test_sector_conflicts_cannot_silently_pick_first_row(quality,kind):
 
 def test_runtime_invocation_evidence_is_fresh_and_preserved(quality,monkeypatch):
     q=quality;instance,work=q.run("RUN")
+    object.__setattr__(instance.cfg, "execution_as_of", None)
     instance.run()
     monkeypatch.setattr(instance.data,"regime_decision",lambda *a:{"ok":None,"action":"UNCONFIRMED"})
     with pytest.raises(q.core.DataQualityError):instance.run()

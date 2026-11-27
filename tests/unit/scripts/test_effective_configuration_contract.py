@@ -312,21 +312,7 @@ def test_cadence_skip_preserves_existing_portfolio_without_evaluation(
     )
     module = importlib.import_module("aktien_oop.runner")
 
-    class FrozenTimestamp:
-        def __new__(cls, *args, **kwargs):
-            return pd.Timestamp(*args, **kwargs)
-
-        @staticmethod
-        def now():
-            return pd.Timestamp("2025-04-30")
-
-    class FrozenPandas:
-        Timestamp = FrozenTimestamp
-
-        def __getattr__(self, name):
-            return getattr(pd, name)
-
-    monkeypatch.setattr(module, "pd", FrozenPandas())
+    cfg = replace(cfg, as_of="2025-05-01", rebalance_frequency="monthly")
     runner = module.Runner(cfg)
     runner.store.save_positions(
         pd.DataFrame([{"as_of": "2025-04-29", "ticker": "AAA", "allocation_pct": 100.0}])
@@ -361,16 +347,14 @@ def test_evidence_has_no_effect_on_decisions_or_accounting(
     assert observed.decisions == baseline.decisions
 
 
-def test_skip_bundle_diagnostic_is_truthful(synthetic_run, tmp_path):
-    synthetic_run("balanced_v1", cadence=2)
-    bundles = [
-        json.loads(p.read_text(encoding="utf-8"))
-        for p in (tmp_path / "backtest/decisions").glob("BT_*.json")
-    ]
-    skipped = [b for b in bundles if b["configuration_evidence"]["runtime"].get("cadence_skipped")]
-    assert len(skipped) == 1
-    assert skipped[0]["configuration_evidence"]["runtime"]["as_of"] == skipped[0]["as_of"]
-    assert skipped[0]["configuration_evidence"]["runtime"]["core_invoked"] is False
+def test_unsupported_stride_keeps_diagnostics_unconfirmed(synthetic_run, tmp_path):
+    error = importlib.import_module("aktien_oop.core_calc").DataQualityError
+    with pytest.raises(error, match="UNSUPPORTED_REBALANCE_STRIDE"):
+        synthetic_run("balanced_v1", cadence=2)
+    invalid = json.loads((tmp_path / "backtest/BT_data_quality_invalid.json").read_text(encoding="utf-8"))
+    assert invalid["decision_confirmed"] is False
+    assert invalid["configuration_evidence"]["runtime"]["core_invoked"] is False
+    assert not list((tmp_path / "backtest/decisions").glob("BT_*.json"))
 
 
 def test_ignored_gate_cli_is_not_claimed_effective(real_loaders):
@@ -406,6 +390,7 @@ def test_runner_stale_requested_asof_is_unconfirmed(
 
     def requested_after_data(runner):
         object.__setattr__(runner.cfg, "as_of", "2025-04-01")
+        object.__setattr__(runner.cfg, "execution_as_of", None)
         return original_run(runner)
 
     monkeypatch.setattr(regime_contract.runner.Runner, "run", requested_after_data)
@@ -450,7 +435,7 @@ def test_core_provenance_and_rebalance_alias(real_loaders, tmp_path):
     assert r.sector_meta_file == (tmp_path / "core.csv").resolve()
     assert e["parameters"]["sector_meta_file"]["source"] == "core.sector_meta"
     assert e["parameters"]["rebalance_frequency"]["loaded"] == "weekly"
-    assert e["parameters"]["rebalance_frequency"]["runtime"] == p.rebalance == "monthly"
+    assert e["parameters"]["rebalance_frequency"]["runtime"] == p.rebalance == "weekly"
 
 
 def test_effective_gate_fallback_with_real_synthetic_data(real_loaders, monkeypatch):
@@ -474,7 +459,7 @@ def test_effective_gate_fallback_with_real_synthetic_data(real_loaders, monkeypa
     assert e["runtime"]["gate_sma_days"] == 200 and e["runtime"]["gate_period"] == "800d"
 
 
-def test_empty_exposure_ticker_fallback_and_skip_reset(
+def test_empty_exposure_ticker_fallback_keeps_runtime_evidence(
     synthetic_run, regime_contract, monkeypatch, tmp_path
 ):
     original_configs = regime_contract.configs
@@ -484,19 +469,7 @@ def test_empty_exposure_ticker_fallback_and_skip_reset(
         return profile, replace(b, benchmark_ticker=""), r, payload
 
     monkeypatch.setattr(regime_contract, "configs", configs)
-    # synthetic_run installs its own two-date schedule. Wrap the real call to
-    # extend it to 3 events; n=2 must produce trade, skip, trade.
-    original_run = regime_contract.bt.Backtester.run
-
-    def run_three(tester):
-        dates = __import__("pandas").bdate_range("2024-01-01", periods=320)
-        monkeypatch.setattr(
-            regime_contract.bt, "rebal_dates", lambda *args: list(dates[[-6, -3, -2]])
-        )
-        return original_run(tester)
-
-    monkeypatch.setattr(regime_contract.bt.Backtester, "run", run_three)
-    synthetic_run("balanced_v1", cadence=2)
+    synthetic_run("balanced_v1")
     bundles = sorted(
         (
             json.loads(p.read_text(encoding="utf-8"))
@@ -504,12 +477,9 @@ def test_empty_exposure_ticker_fallback_and_skip_reset(
         ),
         key=lambda b: b["as_of"],
     )
-    assert len(bundles) == 3
-    assert [b["configuration_evidence"]["runtime"]["cadence_skipped"] for b in bundles] == [
-        False,
-        True,
-        False,
-    ]
+    assert len(bundles) == 2
+    assert all(b["configuration_evidence"]["runtime"]["execution_status"] == "validated_model_close"
+               for b in bundles)
     assert bundles[-1]["configuration_evidence"]["runtime"]["exposure_ticker"] == "SXR8.DE"
 
 

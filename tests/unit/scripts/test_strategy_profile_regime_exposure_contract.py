@@ -115,7 +115,7 @@ def test_declared_generated_and_loaded_profile_contract(name, regime_contract):
 @pytest.fixture
 def synthetic_run(regime_contract, monkeypatch, tmp_path):
     c = regime_contract
-    dates = pd.bdate_range("2024-01-01", periods=320)
+    dates = pd.bdate_range("2024-01-01", periods=320).as_unit("ns")
     rebalances = dates[[-6, -3]]
     prices = pd.DataFrame(
         {
@@ -158,7 +158,7 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
         elif exposure_case == "short":
             benchmark = benchmark.iloc[-199:]
         elif exposure_case == "missing-day":
-            benchmark = benchmark.drop(dates[-1])
+            benchmark = benchmark.drop(dates[-6])
         elif exposure_case == "empty":
             benchmark = benchmark.iloc[:0]
         elif exposure_case == "all-nan":
@@ -239,6 +239,7 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
             sector_meta_file=meta,
             universe=replace(run_base.universe, tickers_file=tickers, meta_file=meta),
             as_of=str(rebalances[1].date()),
+            execution_as_of=str(dates[-1].date()),
             save_dir=out,
             decisions_dir=out / "decisions",
             force_rebalance=True,
@@ -249,7 +250,7 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
             pd.DataFrame(
                 [
                     {
-                        "as_of": rebalances[0],
+                        "as_of": dates[-5],
                         "ticker": ticker,
                         "allocation_pct": weight * 100,
                     }
@@ -305,7 +306,6 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
     enabled, policy, _ = POLICIES[name]
     action = policy if enabled and not gate_positive else "PROCEED"
     sold = action == "SELL"
-    factor = 0.5 if enabled and not exposure_positive else 1.0
     assert result.initial == {"AAA": 0.5, "BBB": 0.5}
     assert [d["action"] for d in result.decisions] == ["PROCEED", action]
     assert result.bundle["regime"]["action"] == action
@@ -324,17 +324,20 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
         bool(result.gspc_requests) is enabled
     )  # disabled profile never calls the gate data source
 
-    assert len(result.exposure_calls) == 2
-    all_returns = []
-    for i, (base, actual, regime_on, cash) in enumerate(result.exposure_calls):
-        expected_base = result.base_returns.iloc[:3] if i == 0 else result.base_returns.iloc[3:]
-        if i == 1 and sold:
-            expected_base = expected_base * 0
-        pd.testing.assert_series_equal(base, expected_base, check_names=False, check_freq=False)
-        pd.testing.assert_series_equal(actual, expected_base * factor, check_names=False, check_freq=False)
-        assert regime_on is enabled
-        assert cash == (1.0 if i == 1 and sold else 0.0)
-        all_returns.extend(actual.tolist())
+    assert len(result.exposure_calls) == 3
+    expected_base = result.base_returns.copy()
+    expected_base.iloc[0] = 0.0
+    if sold:
+        expected_base.iloc[-1] = 0.0
+    factors = pd.Series(1.0, index=expected_base.index)
+    if enabled and not exposure_positive:
+        factors.iloc[2:] = 0.5
+    actual_base = pd.concat([call[0] for call in result.exposure_calls])
+    actual_returns = pd.concat([call[1] for call in result.exposure_calls])
+    pd.testing.assert_series_equal(actual_base, expected_base, check_names=False, check_freq=False)
+    pd.testing.assert_series_equal(actual_returns, expected_base * factors, check_names=False, check_freq=False)
+    assert [call[2] for call in result.exposure_calls] == [False, enabled, enabled and not sold]
+    assert [call[3] for call in result.exposure_calls] == [0.0, 0.0, 1.0 if sold else 0.0]
     # Only the actual rebalance trades create turnover/costs. Exposure creates none.
     assert len(result.trades) == 2
     assert result.trades["turnover"].tolist() == pytest.approx([0.2, 0.2 if sold else 0.0])
@@ -342,15 +345,14 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
     assert result.trades["enter"].tolist() == ["AAA,BBB", ""]
     assert result.trades["exit"].tolist() == ["", "AAA,BBB" if sold else ""]
     assert result.bundle["turnover_raw"] == pytest.approx(1.0 if sold else 0.0)
-    expected_equity = 1.0 - 0.0003
+    expected_equity = 1.0
     expected_curve = [expected_equity]
-    for i, daily_return in enumerate(all_returns):
-        if i == 3 and sold:
-            expected_equity *= 1.0 - 0.0003
+    for i, daily_return in enumerate((expected_base * factors).tolist()):
         expected_equity *= 1.0 + daily_return
+        if i == 0 or (i == 3 and sold):
+            expected_equity *= 1.0 - 0.0003
         expected_curve.append(expected_equity)
-    # Current CSV de-duplicates the shared boundary date, retaining its first row.
-    # SELL cost on that boundary therefore first appears in the next day's equity.
+    assert result.trades["date"].tolist() == [str(day.date()) for day in result.dates[[-5, -2]]]
     assert result.equity["date"].tolist() == result.dates[-6:].tolist()
     assert result.equity["equity"].tolist() == pytest.approx(expected_curve)
     # Two return periods plus the initial allocation date, no hidden exposure trades.
@@ -371,31 +373,22 @@ def test_backtester_exposure_data_edges_reach_equity(case, synthetic_run):
     result = synthetic_run("balanced_v1", exposure_case=case)
     assert bool(result.reporting_error) is (case in {"empty", "all-nan"})
     assert [d["action"] for d in result.decisions] == ["PROCEED", "PROCEED"]
-    factor = pd.Series(1.0, index=result.base_returns.index)
-    if case in {"short", "all-nan"}:
-        factor[:] = 0.5
-    elif case == "missing-day":
-        factor.iloc[-1] = 0.5
-    expected = result.base_returns * factor
+    expected = result.base_returns.copy()
+    expected.iloc[0] = 0.0
     actual = pd.concat([call[1] for call in result.exposure_calls])
     pd.testing.assert_series_equal(actual, expected, check_names=False, check_freq=False)
-    assert [call[2] for call in result.exposure_calls] == [case != "empty"] * 2
+    assert [call[2] for call in result.exposure_calls] == [False, True, True]
     assert result.bundle["new_weights"] == {"AAA": 0.5, "BBB": 0.5}
     assert "CASH" not in set(result.positions["ticker"])
     assert result.trades["trade_cost"].tolist() == pytest.approx([0.0003, 0.0])
     assert result.equity["equity"].iloc[-1] == pytest.approx((1 - 0.0003) * (1 + expected).prod())
 
 
-def test_daily_exposure_also_runs_when_rebalance_is_skipped(synthetic_run):
-    result = synthetic_run("balanced_v1", exposure_positive=False, cadence=2)
-    assert len(result.decisions) == 1  # second date skips the trading gate/core
-    assert len(result.trades) == 1
-    assert len(result.exposure_calls) == 2
-    actual = pd.concat([call[1] for call in result.exposure_calls])
-    pd.testing.assert_series_equal(actual, result.base_returns * 0.5, check_names=False, check_freq=False)
-    assert result.equity["equity"].iloc[-1] == pytest.approx(
-        (1 - 0.0003) * (1 + result.base_returns * 0.5).prod()
-    )
+def test_legacy_run_index_stride_is_rejected_before_exposure_or_trades(synthetic_run, tmp_path):
+    error = importlib.import_module("aktien_oop.core_calc").DataQualityError
+    with pytest.raises(error, match="UNSUPPORTED_REBALANCE_STRIDE"):
+        synthetic_run("balanced_v1", exposure_positive=False, cadence=2)
+    assert not list((tmp_path / "backtest").glob("*_trades.csv"))
 
 
 @pytest.mark.parametrize(
@@ -444,24 +437,28 @@ def test_sma_boundary_contract(case, gate_ok, exposure_factor, regime_contract, 
     )
     if exposure_factor is not None:
         series = close.dropna()  # same preparation as Backtester.run
-        base = pd.Series([0.02, -0.02], index=[as_of, as_of + pd.offsets.BDay()])
+        calendar = xcals.get_calendar("XNYS")
+        first_after = calendar.next_session(as_of)
+        second_after = calendar.next_session(first_after)
+        base = pd.Series([0.02, -0.02], index=[first_after, second_after])
         error = importlib.import_module("aktien_oop.core_calc").DataQualityError
         with pytest.raises(error, match="UNKNOWN_LEGACY_EXPOSURE"):
-            c.bt.apply_exposures_and_cash(base, True, series, series.rolling(200).mean(),
+            c.bt.apply_exposures_and_cash(base.iloc[:1], True, series, series.rolling(200).mean(),
                 cfg.regime_exposure_low, False, None, 0.0, 0.0)
         # A genuinely available observation still has identical arithmetic.
-        actual = c.bt.apply_exposures_and_cash(base.iloc[:1], True, series,
+        actual = c.bt.apply_exposures_and_cash(base.iloc[1:], True, series,
             series.rolling(200).mean(), cfg.regime_exposure_low, False, None, 0.0, 0.0)
-        assert actual.tolist() == pytest.approx([0.02 * exposure_factor])
+        assert actual.tolist() == pytest.approx([-0.02 * exposure_factor])
 
 
 @pytest.mark.parametrize("cash_weight", [0.4, 1.0])
 def test_exposure_scales_only_existing_stock_return_not_cash_yield(cash_weight, regime_contract):
     c = regime_contract
     _, cfg, _, _ = c.configs("conservative_v1")
-    dates = pd.bdate_range("2024-01-01", periods=2)
+    dates = pd.to_datetime(["2024-01-08", "2024-01-09"])
+    previous = pd.to_datetime(["2024-01-04", "2024-01-05"])
     base = pd.Series([0.01, -0.02], index=dates) * (1.0 - cash_weight)
-    bm, sma = pd.Series(90.0, index=dates), pd.Series(100.0, index=dates)
+    bm, sma = pd.Series(90.0, index=previous), pd.Series(100.0, index=previous)
     # Deliberately nonzero synthetic yield to observe cash behavior; profile yield remains zero.
     annual_yield = 0.10
     actual = c.bt.apply_exposures_and_cash(

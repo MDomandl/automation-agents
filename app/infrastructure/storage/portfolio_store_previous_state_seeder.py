@@ -124,6 +124,12 @@ class PortfolioStorePreviousStateSeeder:
             weights = cls._bundle_weights_value(payload)
             if weights is None:
                 continue
+            if "execution_date" in payload:
+                execution_date = payload["execution_date"]
+                if (payload.get("execution_status") != "validated_model_close"
+                        or not isinstance(execution_date, str) or not execution_date.strip()):
+                    continue
+                as_of = execution_date
             snapshots[as_of.strip()] = cls._normalize_bundle_weights(weights)
 
         return snapshots
@@ -233,9 +239,10 @@ class PortfolioStorePreviousStateSeeder:
             return pandas_module.DataFrame(columns=["as_of", "ticker", "weight"])
 
         positions = bt_frame.iloc[0:0].copy()
-        if "as_of" in bt_frame.columns:
+        date_column = "execution_date" if "execution_date" in bt_frame.columns else "as_of"
+        if date_column in bt_frame.columns:
             normalized_dates = pandas_module.to_datetime(
-                bt_frame["as_of"], errors="coerce"
+                bt_frame[date_column], errors="coerce"
             ).dt.strftime("%Y-%m-%d")
             positions = bt_frame.loc[normalized_dates == as_of].copy()
 
