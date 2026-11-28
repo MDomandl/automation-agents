@@ -332,11 +332,20 @@ def test_real_runtime_excludes_non_numeric_unheld_candidate(quality,kind,value):
 @pytest.mark.parametrize("value",[np.nan,0,-1])
 def test_legacy_exposure_cannot_drop_invalid_historical_observation(quality,value):
     q=quality;exposure=q.benchmark.copy();exposure.iloc[-50,0]=value
+    baseline,work=q.run("BT")
+    baseline.run()
+    equity_path=next(work.glob("*_equity_curve.csv"))
+    expected=pd.read_csv(equity_path,comment="#")
+
     instance,work=q.run("BT",exposure_frame=exposure)
-    with pytest.raises(q.core.DataQualityError):instance.run()
-    invalid=json.loads((work/"BT_data_quality_invalid.json").read_text())
+    instance.cfg.legacy_exposure_diagnostics=True
+    instance.run()
+    invalid_path=next(work.glob("*_legacy_exposure_diagnostic.json"))
+    invalid=json.loads(invalid_path.read_text(encoding="utf-8"))
+    assert invalid["status"]=="unavailable" and "daily_returns" not in invalid
     assert any(d["source"]=="exposure_benchmark" for d in invalid["diagnostics"])
-    assert not list(work.glob("*_summary.txt"))
+    assert not (work/"BT_data_quality_invalid.json").exists()
+    pd.testing.assert_frame_equal(expected,pd.read_csv(equity_path,comment="#"))
 
 
 def test_non_session_quote_never_changes_bt_equity(quality):

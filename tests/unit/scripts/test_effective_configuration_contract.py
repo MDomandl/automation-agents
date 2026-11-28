@@ -239,6 +239,20 @@ def test_explicit_benchmark_exposure_cli_is_observed_without_changing_defaults(r
     assert b.configuration_evidence["parameters"]["benchmark_ticker"]["source"] == "cli.benchmark"
 
 
+def test_legacy_diagnostic_switch_has_explicit_cli_precedence(real_loaders):
+    _, load = real_loaders
+    cfg = "legacy_exposure_diagnostics = true\nvol_target_ann = 0.2\nvol_lookback_days = 5\n"
+    bt, runner, _ = load(cfg, cfg, bt_cli=("--no-legacy-exposure-diagnostics",))
+    item = bt.configuration_evidence["parameters"]["legacy_exposure_diagnostics"]
+    assert bt.legacy_exposure_diagnostics is False
+    assert item["source"] == "cli.legacy_exposure_diagnostics"
+    assert item["generated_candidates"] == {"legacy_exposure_diagnostics": True}
+    assert bt.vol_target_ann == 0.2 and bt.vol_lookback_days == 5
+    assert runner.configuration_evidence["parameters"]["legacy_exposure_diagnostics"]["source"] == "not_loaded"
+    enabled, _, _ = load(bt_cli=("--legacy-exposure-diagnostics",))
+    assert enabled.legacy_exposure_diagnostics is True
+
+
 @pytest.mark.parametrize("name", PROFILES)
 @pytest.mark.parametrize("gate_positive", (True, False))
 def test_real_runtime_and_written_artifacts(name, gate_positive, synthetic_run, tmp_path):
@@ -259,7 +273,10 @@ def test_real_runtime_and_written_artifacts(name, gate_positive, synthetic_run, 
         bundle = json.loads(path.read_text(encoding="utf-8"))
         evidence = bundle["configuration_evidence"]
         assert evidence["runtime"]["as_of"] == bundle["as_of"]
-        assert evidence["runtime"]["legacy_exposure_active"] is (name != "offensive_v1")
+        assert evidence["runtime"]["legacy_exposure_active"] is False
+        assert evidence["runtime"]["legacy_voltarget_active"] is False
+        assert evidence["runtime"]["equity_uses_legacy_scaling"] is False
+        assert evidence["runtime"]["legacy_diagnostics_status"] == "disabled"
         assert evidence["runtime"]["legacy_exposure_factor"] == 0.5
         assert evidence["runtime"]["cost_bps"] == 10  # limits.cost_bps=0 ignored
         assert evidence["runtime"]["slippage_bps"] == 5  # limits.slippage_bps=7 ignored
@@ -469,7 +486,7 @@ def test_empty_exposure_ticker_fallback_keeps_runtime_evidence(
         return profile, replace(b, benchmark_ticker=""), r, payload
 
     monkeypatch.setattr(regime_contract, "configs", configs)
-    synthetic_run("balanced_v1")
+    result = synthetic_run("balanced_v1", legacy_diagnostics=True)
     bundles = sorted(
         (
             json.loads(p.read_text(encoding="utf-8"))
@@ -480,7 +497,11 @@ def test_empty_exposure_ticker_fallback_keeps_runtime_evidence(
     assert len(bundles) == 2
     assert all(b["configuration_evidence"]["runtime"]["execution_status"] == "validated_model_close"
                for b in bundles)
-    assert bundles[-1]["configuration_evidence"]["runtime"]["exposure_ticker"] == "SXR8.DE"
+    runtime = bundles[-1]["configuration_evidence"]["runtime"]
+    assert runtime["legacy_diagnostics_status"] == "not_run"
+    assert runtime["legacy_exposure_active"] is False
+    assert result.diagnostic["benchmark_ticker"] == "SXR8.DE"
+    assert result.diagnostic["status"] == "available"
 
 
 def test_real_bt_normalization_and_zero_cap_manifest(

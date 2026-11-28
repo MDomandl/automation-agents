@@ -141,6 +141,10 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
         exposure_case=None,
         cadence=1,
         output_root=None,
+        legacy_diagnostics=False,
+        bt_overrides=None,
+        block_diagnostic_output=False,
+        gate_unknown=False,
     ):
         work = Path(output_root) if output_root is not None else tmp_path
         work.mkdir(parents=True, exist_ok=True)
@@ -148,7 +152,9 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
         monkeypatch.setenv("AKTIEN_OOP_MARKET_CACHE_DIR", str(work / "market-cache"))
         profile, bt_base, run_base, _ = c.configs(name)
         gspc = pd.Series([100.0 + i * 0.01 for i in range(len(dates))], index=dates)
-        if not gate_positive:
+        if gate_unknown:
+            gspc = gspc.iloc[:0]
+        elif not gate_positive:
             gspc.loc[rebalances[1] :] = [80.0 - i * 0.01 for i in range(3)]
         benchmark = pd.Series([100.0 + i * 0.02 for i in range(len(dates))], index=dates)
         if not exposure_positive:
@@ -163,7 +169,9 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
             benchmark = benchmark.iloc[:0]
         elif exposure_case == "all-nan":
             benchmark[:] = float("nan")
-        requests, decisions, core_calls, exposure_calls = [], [], [], []
+        elif exposure_case == "alternating":
+            benchmark[:] = [100.0 if i % 2 == 0 else 110.0 for i in range(len(dates))]
+        requests, decisions, core_calls, exposure_calls, benchmark_requests = [], [], [], [], []
 
         def gspc_download(symbol, *, start, end, **kwargs):
             assert symbol == "^GSPC"
@@ -175,6 +183,7 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
         def close_prices(requested, *args, **kwargs):
             names = [requested] if isinstance(requested, str) else list(requested)
             if names == ["SXR8.DE"]:
+                benchmark_requests.append(kwargs["data_kind"])
                 return benchmark.to_frame("SXR8.DE")
             if names == ["GEV", "PLTR", "STX"]:
                 # Runner's hard-coded diagnostic probe; these are never portfolio candidates.
@@ -221,11 +230,17 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
             rebalance_every_n=cadence,
             decisions_dir=str(bt_out / "decisions"),
             dump_decision_bundles=True,
+            legacy_exposure_diagnostics=legacy_diagnostics,
+            **(bt_overrides or {}),
         )
         tester = c.bt.Backtester(cfg)
-        reporting_error = None
+        if block_diagnostic_output:
+            (bt_out / f"bt_{cfg.frequency}_{cfg.top_k}x{cfg.buffer_k}_legacy_exposure_diagnostic.json").mkdir()
         tester.run()
         prefix = bt_out / f"bt_{cfg.frequency}_{cfg.top_k}x{cfg.buffer_k}"
+        diagnostic_path = Path(f"{prefix}_legacy_exposure_diagnostic.json")
+        diagnostic = json.loads(diagnostic_path.read_text(encoding="utf-8")) if diagnostic_path.is_file() else None
+        summary = Path(f"{prefix}_summary.txt").read_text(encoding="utf-8")
         positions = pd.read_csv(f"{prefix}_positions.csv", comment="#")
         trades = pd.read_csv(f"{prefix}_trades.csv", comment="#").fillna("")
         equity = pd.read_csv(f"{prefix}_equity_curve.csv", comment="#", parse_dates=["date"])
@@ -279,7 +294,9 @@ def synthetic_run(regime_contract, monkeypatch, tmp_path):
             core_calls=core_calls,
             exposure_calls=exposure_calls,
             gspc_requests=requests,
-            reporting_error=reporting_error,
+            diagnostic=diagnostic,
+            summary=summary,
+            benchmark_requests=benchmark_requests,
         )
 
     return run
@@ -302,7 +319,7 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
     exposure_positive,
     synthetic_run,
 ):
-    result = synthetic_run(name, gate_positive, exposure_positive)
+    result = synthetic_run(name, gate_positive, exposure_positive, legacy_diagnostics=True)
     enabled, policy, _ = POLICIES[name]
     action = policy if enabled and not gate_positive else "PROCEED"
     sold = action == "SELL"
@@ -324,7 +341,8 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
         bool(result.gspc_requests) is enabled
     )  # disabled profile never calls the gate data source
 
-    assert len(result.exposure_calls) == 3
+    assert result.bundle["configuration_evidence"]["runtime"]["legacy_diagnostics_status"] == "not_supported_in_runner"
+    assert result.diagnostic["binding_eligible"] is False
     expected_base = result.base_returns.copy()
     expected_base.iloc[0] = 0.0
     if sold:
@@ -332,12 +350,20 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
     factors = pd.Series(1.0, index=expected_base.index)
     if enabled and not exposure_positive:
         factors.iloc[2:] = 0.5
-    actual_base = pd.concat([call[0] for call in result.exposure_calls])
-    actual_returns = pd.concat([call[1] for call in result.exposure_calls])
-    pd.testing.assert_series_equal(actual_base, expected_base, check_names=False, check_freq=False)
-    pd.testing.assert_series_equal(actual_returns, expected_base * factors, check_names=False, check_freq=False)
-    assert [call[2] for call in result.exposure_calls] == [False, enabled, enabled and not sold]
-    assert [call[3] for call in result.exposure_calls] == [0.0, 0.0, 1.0 if sold else 0.0]
+    if enabled:
+        assert result.diagnostic["status"] == "available"
+        actual_base = pd.concat([call[0] for call in result.exposure_calls])
+        pd.testing.assert_series_equal(actual_base, expected_base, check_names=False, check_freq=False)
+        assert [call[2] for call in result.exposure_calls] == [False, True, not sold]
+        assert [call[3] for call in result.exposure_calls] == [0.0, 0.0, 1.0 if sold else 0.0]
+        actual_returns = result.diagnostic["daily_returns"]
+        assert [row["date"] for row in actual_returns] == [str(day.date()) for day in expected_base.index]
+        assert [row["hypothetical_return_before_costs"] for row in actual_returns] == pytest.approx(
+            (expected_base * factors).tolist()
+        )
+    else:
+        assert result.diagnostic["status"] == "inactive"
+        assert not result.exposure_calls
     # Only the actual rebalance trades create turnover/costs. Exposure creates none.
     assert len(result.trades) == 2
     assert result.trades["turnover"].tolist() == pytest.approx([0.2, 0.2 if sold else 0.0])
@@ -347,7 +373,7 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
     assert result.bundle["turnover_raw"] == pytest.approx(1.0 if sold else 0.0)
     expected_equity = 1.0
     expected_curve = [expected_equity]
-    for i, daily_return in enumerate((expected_base * factors).tolist()):
+    for i, daily_return in enumerate(expected_base.tolist()):
         expected_equity *= 1.0 + daily_return
         if i == 0 or (i == 3 and sold):
             expected_equity *= 1.0 - 0.0003
@@ -361,27 +387,146 @@ def test_profile_signal_matrix_reaches_real_runner_and_backtester(
 
 @pytest.mark.parametrize("case", ["equal", "short", "missing-day", "empty", "all-nan"])
 def test_backtester_exposure_data_edges_reach_equity(case, synthetic_run):
-    if case != "equal":
-        # M1.40: Unknown legacy input is no longer a negative signal or a
-        # silently disabled overlay. Valid overlay arithmetic stays unchanged.
-        error = importlib.import_module("aktien_oop.core_calc").DataQualityError
-        codes = {"short":"INSUFFICIENT_HISTORY", "missing-day":"MISSING_AS_OF",
-                 "empty":"MISSING_LEGACY_EXPOSURE", "all-nan":"NONFINITE_PRICE"}
-        with pytest.raises(error, match=codes[case]):
-            synthetic_run("balanced_v1", exposure_case=case)
-        return
-    result = synthetic_run("balanced_v1", exposure_case=case)
-    assert bool(result.reporting_error) is (case in {"empty", "all-nan"})
+    result = synthetic_run("balanced_v1", exposure_case=case, legacy_diagnostics=True)
+    if case == "equal":
+        assert result.diagnostic["status"] == "available"
+        assert [call[2] for call in result.exposure_calls] == [False, True, True]
+    else:
+        codes = {"short": "INSUFFICIENT_HISTORY", "missing-day": "MISSING_AS_OF",
+                 "empty": "MISSING_LEGACY_EXPOSURE", "all-nan": "NONFINITE_PRICE"}
+        assert result.diagnostic["status"] == "unavailable"
+        assert codes[case] in {issue["code"] for issue in result.diagnostic["diagnostics"]}
+        assert "daily_returns" not in result.diagnostic
+    if case in {"empty", "all-nan"}:
+        assert "Comparison unavailable" in result.summary
     assert [d["action"] for d in result.decisions] == ["PROCEED", "PROCEED"]
     expected = result.base_returns.copy()
     expected.iloc[0] = 0.0
-    actual = pd.concat([call[1] for call in result.exposure_calls])
-    pd.testing.assert_series_equal(actual, expected, check_names=False, check_freq=False)
-    assert [call[2] for call in result.exposure_calls] == [False, True, True]
+    if case == "equal":
+        actual = pd.concat([call[1] for call in result.exposure_calls])
+        pd.testing.assert_series_equal(actual, expected, check_names=False, check_freq=False)
     assert result.bundle["new_weights"] == {"AAA": 0.5, "BBB": 0.5}
     assert "CASH" not in set(result.positions["ticker"])
     assert result.trades["trade_cost"].tolist() == pytest.approx([0.0003, 0.0])
     assert result.equity["equity"].iloc[-1] == pytest.approx((1 - 0.0003) * (1 + expected).prod())
+
+
+def test_legacy_switch_off_keeps_gate_and_ignores_legacy_parameters(synthetic_run, tmp_path):
+    expected = synthetic_run("balanced_v1", gate_positive=False, exposure_positive=False,
+                             output_root=tmp_path / "diagnostic", legacy_diagnostics=True)
+    actual = synthetic_run("balanced_v1", gate_positive=False, exposure_positive=False,
+                           output_root=tmp_path / "default", bt_overrides={
+                               "regime_exposure_low": -1.0, "vol_target_ann": 0.25, "vol_lookback_days": 1,
+                           })
+    assert expected.diagnostic["status"] == "available"
+    assert actual.diagnostic is None and not actual.exposure_calls
+    assert [d["action"] for d in actual.decisions] == ["PROCEED", "HOLD"]
+    assert len(actual.benchmark_requests) == 1
+    for field in ("positions", "trades", "equity"):
+        pd.testing.assert_frame_equal(getattr(expected, field), getattr(actual, field))
+    assert expected.runner_weights == actual.runner_weights
+
+
+@pytest.mark.parametrize("settings, field", [
+    ({"regime_exposure_low": -0.01}, "regime_exposure_low"),
+    ({"regime_exposure_low": 1.01}, "regime_exposure_low"),
+    ({"vol_target_ann": -0.2}, "vol_target_ann"),
+    ({"vol_target_ann": "0.2"}, "vol_target_ann"),
+    ({"vol_target_ann": float("nan")}, "vol_target_ann"),
+    ({"vol_target_ann": 10 ** 1000}, "vol_target_ann"),
+    ({"benchmark_ticker": ["SPY"], "benchmark": ["SPY"]}, "benchmark_ticker"),
+    ({"vol_target_ann": 0.2, "vol_lookback_days": 1}, "vol_lookback_days"),
+    ({"vol_target_ann": 0.2, "vol_lookback_days": None}, "vol_lookback_days"),
+])
+def test_bad_opt_in_parameters_only_invalidate_diagnostic(synthetic_run, settings, field):
+    actual = synthetic_run("balanced_v1", legacy_diagnostics=True, bt_overrides=settings)
+    assert actual.diagnostic["status"] == "unavailable"
+    assert actual.diagnostic["diagnostics"][0]["field"] == field
+    assert "daily_returns" not in actual.diagnostic
+    assert len(actual.trades) == 2
+    assert actual.equity["equity"].iloc[-1] > 0
+    if field == "benchmark_ticker":
+        assert "Comparison unavailable" in actual.summary
+
+
+@pytest.mark.parametrize("factor", [0.0, 1.0])
+def test_regime_diagnostic_bounds(synthetic_run, factor):
+    actual = synthetic_run("balanced_v1", exposure_positive=False, legacy_diagnostics=True,
+                           bt_overrides={"regime_exposure_low": factor, "vol_target_ann": 0.0})
+    if factor == 1.0:
+        assert actual.diagnostic["status"] == "inactive"
+        assert not actual.exposure_calls
+    else:
+        assert actual.diagnostic["status"] == "available"
+        assert actual.diagnostic["daily_returns"][-1]["hypothetical_return_before_costs"] == 0.0
+    assert actual.equity["equity"].pct_change().iloc[-1] == pytest.approx(actual.base_returns.iloc[-1])
+
+
+@pytest.mark.parametrize("target", [0.20, 3.00])
+def test_voltarget_diagnostic_without_regime_gate(synthetic_run, target):
+    actual = synthetic_run("offensive_v1", exposure_case="alternating", legacy_diagnostics=True,
+                           bt_overrides={"vol_target_ann": target, "vol_lookback_days": 2})
+    assert actual.diagnostic["status"] == "available"
+    assert actual.diagnostic["regime_scaling"] is False
+    assert actual.diagnostic["voltarget_scaling"] is True
+    assert actual.gspc_requests == []
+    sigma = pd.Series([110 / 100 - 1, 100 / 110 - 1]).std()
+    factor = min(1.0, target / (252 ** 0.5 * sigma))
+    assert actual.diagnostic["daily_returns"][-1]["hypothetical_return_before_costs"] == pytest.approx(
+        actual.base_returns.iloc[-1] * factor
+    )
+    assert actual.equity["equity"].pct_change().iloc[-1] == pytest.approx(actual.base_returns.iloc[-1])
+
+
+def test_unsupported_diagnostic_benchmark_does_not_block_comparison(synthetic_run):
+    actual = synthetic_run("balanced_v1", legacy_diagnostics=True,
+                           bt_overrides={"benchmark_ticker": "UNMAPPED"})
+    assert actual.diagnostic["status"] == "unavailable"
+    assert actual.diagnostic["diagnostics"][0]["code"] == "UNSUPPORTED_EXPOSURE_CALENDAR"
+    assert actual.bundle["new_weights"] == actual.initial
+    from scripts.compare_runs import extract_benchmark, extract_performance
+    comparison = extract_benchmark(actual.summary, {})
+    portfolio = extract_performance(actual.summary, {})
+    assert comparison.benchmark_name == "SXR8.DE"
+    assert comparison.benchmark_return_pct is not None
+    assert comparison.benchmark_cagr_pct is not None
+    assert comparison.benchmark_volatility_pct != portfolio.volatility_pct
+    assert comparison.benchmark_sharpe_ratio != portfolio.sharpe_ratio
+    assert portfolio.volatility_pct == pytest.approx(
+        (actual.equity["equity"].pct_change().fillna(0.0).std() * 252 ** 0.5) * 100, abs=0.0051
+    )
+
+
+def test_unrepresentable_legacy_history_does_not_stop_backtest(synthetic_run):
+    actual = synthetic_run("offensive_v1", legacy_diagnostics=True, bt_overrides={
+        "vol_target_ann": 0.2, "vol_lookback_days": 1_000_000_000,
+    })
+    assert actual.diagnostic["status"] == "unavailable"
+    assert actual.diagnostic["diagnostics"][0]["code"] == "UNREPRESENTABLE_LEGACY_HISTORY"
+    assert len(actual.trades) == 2
+
+
+def test_nonfinite_diagnostic_setting_keeps_d5_failure_artifact(synthetic_run, tmp_path):
+    error = importlib.import_module("aktien_oop.core_calc").DataQualityError
+    with pytest.raises(error):
+        synthetic_run("balanced_v1", legacy_diagnostics=True, gate_unknown=True,
+                      bt_overrides={"vol_target_ann": float("nan")})
+    failure = json.loads((tmp_path / "backtest/BT_data_quality_invalid.json").read_text(encoding="utf-8"))
+    assert failure["action"] == "UNCONFIRMED"
+    assert failure["decision_confirmed"] is False
+    assert failure["configuration_evidence"]["runtime"]["vol_target_ann"] == "nonfinite: nan"
+    assert failure["diagnostics"]
+    assert not list((tmp_path / "backtest").glob("*_trades.csv"))
+
+
+def test_diagnostic_write_error_does_not_stop_backtest(synthetic_run):
+    actual = synthetic_run("balanced_v1", legacy_diagnostics=True, block_diagnostic_output=True)
+    assert actual.diagnostic is None
+    runtime = actual.cfg.configuration_evidence["runtime"]
+    assert runtime["legacy_diagnostics_status"] == "write_failed"
+    assert runtime["legacy_diagnostics_file"] is None
+    assert runtime["legacy_diagnostics_issues"][0]["code"] == "LEGACY_DIAGNOSTIC_OUTPUT_IO"
+    assert len(actual.trades) == 2
 
 
 def test_legacy_run_index_stride_is_rejected_before_exposure_or_trades(synthetic_run, tmp_path):
